@@ -1,0 +1,1 @@
+-- Phase 6 — mart_operator_perf: Gold mart table for Metabase

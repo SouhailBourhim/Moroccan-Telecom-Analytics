@@ -1,0 +1,1 @@
+-- Phase 6 — int_yoy_growth: business logic (ephemeral CTE)

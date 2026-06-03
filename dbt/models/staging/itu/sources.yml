@@ -1,0 +1,8 @@
+# Phase 4/5 — ITU bronze source declarations
+version: 2
+
+sources:
+  - name: bronze_itu
+    schema: main
+    tables:
+      - name: bronze_itu_morocco

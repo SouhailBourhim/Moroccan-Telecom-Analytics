@@ -1,0 +1,32 @@
+# ── Data files (never commit raw data or the warehouse) ────────────────────
+data/raw/
+data/warehouse.duckdb
+data/ge_reports/
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── dbt ─────────────────────────────────────────────────────────────────────
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# ── Airflow ──────────────────────────────────────────────────────────────────
+airflow/logs/
+
+# ── Great Expectations ───────────────────────────────────────────────────────
+great_expectations/uncommitted/
+
+# ── Environment & secrets ────────────────────────────────────────────────────
+.env
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store

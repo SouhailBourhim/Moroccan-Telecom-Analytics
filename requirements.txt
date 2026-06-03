@@ -1,0 +1,14 @@
+# Core pipeline
+apache-airflow==2.8.0
+dbt-core==1.7.0
+dbt-duckdb==1.7.0
+duckdb==0.10.0
+great-expectations==0.18.0
+
+# Data handling
+pandas==2.1.0
+openpyxl==3.1.2
+requests>=2.31.0
+
+# dbt package (installed via dbt deps, listed for reference)
+# dbt-labs/dbt_utils==1.1.1

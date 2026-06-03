@@ -1,0 +1,15 @@
+# Phase 4/5 — ANRT bronze source declarations
+version: 2
+
+sources:
+  - name: bronze_anrt
+    schema: main
+    tables:
+      - name: bronze_anrt_mobile
+      - name: bronze_anrt_internet
+      - name: bronze_anrt_fixed
+      - name: bronze_anrt_qos
+      - name: bronze_anrt_traffic
+      - name: bronze_anrt_arpm
+      - name: bronze_anrt_complaints
+      - name: bronze_anrt_bandwidth

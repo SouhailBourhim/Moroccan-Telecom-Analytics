@@ -1,0 +1,1 @@
+-- Phase 6 — int_penetration_rates: business logic (ephemeral CTE)

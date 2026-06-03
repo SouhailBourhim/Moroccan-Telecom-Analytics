@@ -1,0 +1,1 @@
+-- Phase 6 — mart_qos_scorecard: Gold mart table for Metabase
