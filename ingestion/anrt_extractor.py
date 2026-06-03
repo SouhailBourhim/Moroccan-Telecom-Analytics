@@ -4,9 +4,16 @@ ANRT extractor — CKAN API → XLSX download → Bronze tables in DuckDB.
 Flow per dataset:
   1. package_show CKAN call → resource download URL
   2. HTTP GET → save XLSX to data/raw/anrt/
-  3. Parse XLSX (merged cells, multi-row headers handled)
+  3. Parse XLSX using the universal ANRT format reader
   4. Map to Bronze schema (docs/schema.md)
   5. Load into DuckDB bronze_anrt_* table
+
+All ANRT XLSX files share the same structure:
+  - Top rows: legend block  [letter_code | description]
+  - Blank separator rows
+  - Header row: "Période (à fin)" in col-0, letter codes as remaining columns
+  - Data rows: period string in col-0 ("T1-2006", "S2-2013", "2006"), values in remaining cols
+  Exception: QoS file uses "Donnée" as the header key instead of "Période (à fin)".
 """
 from __future__ import annotations
 
@@ -33,50 +40,95 @@ ANRT_RAW_DIR = RAW_DIR / "anrt"
 REQUEST_TIMEOUT = 120  # seconds
 
 # ── Operator name normalisation ────────────────────────────────────────────────
+# Maps historical operator names (as they appear in legend descriptions) to
+# canonical Bronze names.
 _OPERATOR_MAP: dict[str, str] = {
     "iam": "Maroc Telecom",
+    "itissalat al-maghrib": "Maroc Telecom",
     "maroc telecom": "Maroc Telecom",
     "mt": "Maroc Telecom",
     "orange maroc": "Orange Maroc",
+    "medi telecom": "Orange Maroc",
     "orange": "Orange Maroc",
     "inwi": "Inwi",
+    "wana corporate": "Inwi",
+    "wana": "Inwi",
     "total": "Total",
 }
 
 
 def _norm_operator(val: object) -> str | None:
-    """Return canonical operator name or None for unrecognised values."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
     key = str(val).strip().lower()
     return _OPERATOR_MAP.get(key, str(val).strip())
 
 
-# ── XLSX reading helpers ───────────────────────────────────────────────────────
-def _read_raw(path: Path, sheet: int | str = 0) -> pd.DataFrame:
-    """Read a sheet with no header, forward-filling to expand merged cells."""
-    df = pd.read_excel(path, sheet_name=sheet, header=None, dtype=str)
-    return df.ffill(axis=0).ffill(axis=1)
+# ── Universal ANRT XLSX reader ────────────────────────────────────────────────
+def _parse_anrt_xlsx(path: Path) -> tuple[dict[str, str], pd.DataFrame]:
+    """Read any ANRT XLSX and return (legend, data).
 
+    legend: {column_code → description}
+    data:   DataFrame with columns ["period", code1, code2, ...]
+            where period strings are e.g. "T1-2006", "S2-2013", "2017".
+    """
+    raw = pd.read_excel(path, sheet_name=0, header=None, dtype=str)
 
-def _find_header_row(raw: pd.DataFrame, keywords: list[str]) -> int:
-    """Return the 0-based index of the first row that contains any keyword."""
+    # Find header row: first row where col-0 contains "Période" or equals "Donnée"
+    header_row = None
     for i in range(len(raw)):
-        row_str = " ".join(str(v).lower() for v in raw.iloc[i] if pd.notna(v))
-        if any(kw.lower() in row_str for kw in keywords):
-            return i
-    logger.warning("Header row not found for keywords %s; assuming row 0", keywords)
-    return 0
+        cell = str(raw.iloc[i, 0]).strip()
+        if "Période" in cell or cell == "Donnée":
+            header_row = i
+            break
+
+    if header_row is None:
+        raise ValueError(f"Cannot locate header row ('Période'/'Donnée') in {path.name}")
+
+    # Build legend from rows above the header
+    legend: dict[str, str] = {}
+    for i in range(header_row):
+        code = str(raw.iloc[i, 0]).strip()
+        desc_cell = raw.iloc[i, 1]
+        if code and code != "nan" and pd.notna(desc_cell):
+            legend[code] = str(desc_cell).strip()
+
+    # Slice out the data block
+    col_names = [str(v).strip() if pd.notna(v) else None for v in raw.iloc[header_row]]
+    data = raw.iloc[header_row + 1 :].copy()
+    data.columns = col_names
+    period_col = col_names[0]
+
+    # Keep only rows that look like valid period strings and drop separator rows
+    valid = data[period_col].apply(
+        lambda v: bool(
+            re.match(r"^(T[1-4]-\d{4}|S[12]-\d{4}|\d{4})$", str(v).strip())
+        )
+    )
+    data = data[valid].reset_index(drop=True)
+    data = data.rename(columns={period_col: "period"})
+
+    return legend, data
 
 
-def _make_df(raw: pd.DataFrame, header_row: int) -> pd.DataFrame:
-    """Slice raw sheet into (header, data) pair and clean column names."""
-    headers = [str(v).strip() for v in raw.iloc[header_row]]
-    df = raw.iloc[header_row + 1 :].copy()
-    df.columns = headers
-    df = df.dropna(how="all").reset_index(drop=True)
-    df.columns = [c.lower().strip() for c in df.columns]
-    return df
+def _parse_period(period: str) -> tuple[int | None, str | None]:
+    """Return (year, quarter) from period strings.
+
+    'T1-2006' → (2006, 'Q1')
+    'S2-2013' → (2013, 'S2')
+    '2017'    → (2017, None)
+    """
+    s = str(period).strip()
+    m = re.match(r"^T([1-4])-(\d{4})$", s)
+    if m:
+        return int(m.group(2)), f"Q{m.group(1)}"
+    m = re.match(r"^S([12])-(\d{4})$", s)
+    if m:
+        return int(m.group(2)), f"S{m.group(1)}"
+    m = re.match(r"^(\d{4})$", s)
+    if m:
+        return int(m.group(1)), None
+    return None, None
 
 
 # ── Type coercion ──────────────────────────────────────────────────────────────
@@ -96,479 +148,415 @@ def _float(val: object) -> float | None:
         return None
 
 
-def _quarter(val: object) -> str | None:
-    """Normalise quarter values to 'Q1'/'Q2'/'Q3'/'Q4' or None."""
-    if val is None or (isinstance(val, float) and pd.isna(val)):
+def _col(row: pd.Series, code: str) -> object:
+    """Safely get a cell; return None when column is absent or NaN."""
+    if code not in row.index:
         return None
-    s = str(val).strip().upper()
-    if re.match(r"^T[1-4]$", s):
-        return "Q" + s[1]
-    if re.match(r"^Q[1-4]$", s):
-        return s
-    if s in {"1", "2", "3", "4"}:
-        return "Q" + s
-    return None
+    v = row[code]
+    return None if (isinstance(v, float) and pd.isna(v)) or str(v).strip().upper() in {"NAN", "ND", "NM", ""} else v
 
 
 # ── Per-dataset parsers ────────────────────────────────────────────────────────
 def _parse_mobile(path: Path) -> pd.DataFrame:
-    """bronze_anrt_mobile: year, quarter, operator, total_subs, prepaid_subs, postpaid_subs."""
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "operateur", "opérateur", "trimestre"])
-    df = _make_df(raw, hr)
+    """bronze_anrt_mobile: year, quarter, operator, total_subs, prepaid_subs, postpaid_subs.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    op_col = _first_col(df, ["operateur", "opérateur", "operator"])
-    total_col = _first_col(df, ["total", "parc total", "total abonnés", "total abonnes"])
-    prepaid_col = _first_col(df, ["prépayé", "prepaye", "prepaid", "prépayé"])
-    postpaid_col = _first_col(df, ["postpayé", "postpaye", "postpaid", "post-payé"])
+    Column layout (values in thousands):
+      postpaid: A=IAM  B=Orange  C=Inwi  D=Total
+      prepaid:  E=IAM  F=Orange  G=Inwi  H=Total
+      total:    I=IAM  J=Orange  K=Inwi  L=Total
+    """
+    _, data = _parse_anrt_xlsx(path)
+
+    op_cols = {
+        "Maroc Telecom": ("I", "E", "A"),
+        "Orange Maroc":  ("J", "F", "B"),
+        "Inwi":          ("K", "G", "C"),
+        "Total":         ("L", "H", "D"),
+    }
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
+        for operator, (tot, pre, post) in op_cols.items():
+            rows.append({
                 "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "operator": _norm_operator(r.get(op_col)),
-                "total_subs": _int(r.get(total_col)),
-                "prepaid_subs": _int(r.get(prepaid_col)),
-                "postpaid_subs": _int(r.get(postpaid_col)),
-            }
-        )
+                "quarter": quarter,
+                "operator": operator,
+                "total_subs": _int(_col(r, tot)),
+                "prepaid_subs": _int(_col(r, pre)),
+                "postpaid_subs": _int(_col(r, post)),
+            })
     return pd.DataFrame(rows)
 
 
 def _parse_internet(path: Path) -> pd.DataFrame:
-    """bronze_anrt_internet: year, quarter, technology, subscribers."""
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "technologie", "technology", "trimestre"])
-    df = _make_df(raw, hr)
+    """bronze_anrt_internet: year, quarter, technology, subscribers.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    tech_col = _first_col(df, ["technologie", "technology", "type"])
-    subs_col = _first_col(df, ["abonnés", "abonnes", "subscribers", "nombre"])
+    Aggregate columns only (global totals per technology):
+      D=ADSL  H=Mobile  K=FTTH  L=Leased  M=Other  Q=Total
+    """
+    _, data = _parse_anrt_xlsx(path)
+
+    tech_cols = {
+        "ADSL":   "D",
+        "Mobile": "H",
+        "FTTH":   "K",
+        "Leased": "L",
+        "Other":  "M",
+        "Total":  "Q",
+    }
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
+        for technology, col in tech_cols.items():
+            val = _int(_col(r, col))
+            if val is None:
+                continue
+            rows.append({
                 "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "technology": str(r.get(tech_col, "")).strip() or None,
-                "subscribers": _int(r.get(subs_col)),
-            }
-        )
+                "quarter": quarter,
+                "technology": technology,
+                "subscribers": val,
+            })
     return pd.DataFrame(rows)
 
 
 def _parse_fixed(path: Path) -> pd.DataFrame:
-    """bronze_anrt_fixed: year, quarter, total_subs."""
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "trimestre", "fixe"])
-    df = _make_df(raw, hr)
+    """bronze_anrt_fixed: year, quarter, total_subs.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    total_col = _first_col(df, ["total", "parc total", "abonnés", "abonnes"])
+    Z = Parc fixe global (en milliers)
+    """
+    _, data = _parse_anrt_xlsx(path)
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "total_subs": _int(r.get(total_col)),
-            }
-        )
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "total_subs": _int(_col(r, "Z")),
+        })
     return pd.DataFrame(rows)
 
 
 def _parse_qos(path: Path) -> pd.DataFrame:
     """bronze_anrt_qos: year, quarter, operator, indicator, value, unit.
 
-    QoS files are wide (one column per metric) — we unpivot to long form.
+    QoS has a different header key ("Donnée") and annual-only data.
+    Indicator codes: TR-CN, TR-CE, DD-CN, DD-CE, DU-CN, DU-CE, LM-CN, LM-CE.
+    "NM" (Non mesuré) values are treated as NULL.
     """
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "indicateur", "indicator", "opérateur"])
-    df = _make_df(raw, hr)
+    legend, data = _parse_anrt_xlsx(path)
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    op_col = _first_col(df, ["operateur", "opérateur", "operator"])
+    # Build indicator → unit mapping from legend descriptions
+    def _extract_unit(desc: str) -> str | None:
+        m = re.search(r"\(en ([^)]+)\)", desc)
+        return m.group(1) if m else None
 
-    dim_cols = [c for c in [year_col, qtr_col, op_col] if c]
-    metric_cols = [c for c in df.columns if c not in dim_cols and c]
+    metric_cols = [c for c in data.columns if c and c != "period" and c is not None]
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        base = {
-            "year": year,
-            "quarter": _quarter(r.get(qtr_col)),
-            "operator": _norm_operator(r.get(op_col)),
-        }
         for col in metric_cols:
-            val = _float(r.get(col))
+            val = _float(_col(r, col))
             if val is None:
                 continue
-            # Try to split "indicator (unit)" patterns
-            m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", str(col))
-            indicator = m.group(1).strip() if m else str(col).strip()
-            unit = m.group(2).strip() if m else None
-            rows.append({**base, "indicator": indicator, "value": val, "unit": unit})
+            desc = legend.get(col, col)
+            unit = _extract_unit(desc)
+            rows.append({
+                "year": year,
+                "quarter": quarter,
+                "operator": None,
+                "indicator": desc,
+                "value": val,
+                "unit": unit,
+            })
     return pd.DataFrame(rows)
 
 
 def _parse_traffic(path: Path) -> pd.DataFrame:
     """bronze_anrt_traffic: year, quarter, segment, voice_minutes, sms_count.
 
-    Traffic files may have segment as row label or column header.
-    We try both wide and long layouts.
+    A = voix mobile (millions de min)
+    B = voix fixe   (millions de min)
+    C = SMS mobile  (millions de SMS)
     """
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "trafic", "traffic", "sms", "voix"])
-    df = _make_df(raw, hr)
-
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    seg_col = _first_col(df, ["segment", "type", "sens", "destination"])
-    voice_col = _first_col(df, ["voix", "voice", "minutes", "trafic voix", "mn"])
-    sms_col = _first_col(df, ["sms", "nombre sms", "sms sortant"])
+    _, data = _parse_anrt_xlsx(path)
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "segment": str(r.get(seg_col, "")).strip() or None,
-                "voice_minutes": _int(r.get(voice_col)),
-                "sms_count": _int(r.get(sms_col)),
-            }
-        )
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "segment": "mobile",
+            "voice_minutes": _int(_col(r, "A")),
+            "sms_count": _int(_col(r, "C")),
+        })
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "segment": "fixed",
+            "voice_minutes": _int(_col(r, "B")),
+            "sms_count": None,
+        })
     return pd.DataFrame(rows)
 
 
 def _parse_bandwidth(path: Path) -> pd.DataFrame:
-    """bronze_anrt_bandwidth: year, capacity_gbps."""
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "bande passante", "gbps", "capacité"])
-    df = _make_df(raw, hr)
+    """bronze_anrt_bandwidth: year, capacity_gbps.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    cap_col = _first_col(df, ["capacité", "capacity", "bande passante", "gbps", "gbit", "valeur"])
+    Bandwidth has no legend block — header is row 0 with full descriptions.
+    Column index 1 = utilisée (Gb/s).
+    """
+    _, data = _parse_anrt_xlsx(path)
+
+    # Pick the first numeric column (index 1 after period)
+    value_col = [c for c in data.columns if c and c != "period"][0]
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, _ = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append({"year": year, "capacity_gbps": _float(r.get(cap_col))})
+        rows.append({
+            "year": year,
+            "capacity_gbps": _float(_col(r, value_col)),
+        })
     return pd.DataFrame(rows)
 
 
 def _parse_arpm(path: Path) -> pd.DataFrame:
-    """bronze_anrt_arpm: year, quarter, arpm, internet_bill_avg."""
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "arpm", "facture", "trimestre"])
-    df = _make_df(raw, hr)
+    """bronze_anrt_arpm: year, quarter, arpm, internet_bill_avg.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    arpm_col = _first_col(df, ["arpm", "revenu moyen", "revenue par minute"])
-    bill_col = _first_col(df, ["facture", "facture internet", "bill", "internet bill"])
+    A = ARPM mobile global (DHHT/min)
+    B = Facture mensuelle Internet global (DHHT)
+    """
+    _, data = _parse_anrt_xlsx(path)
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "arpm": _float(r.get(arpm_col)),
-                "internet_bill_avg": _float(r.get(bill_col)),
-            }
-        )
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "arpm": _float(_col(r, "A")),
+            "internet_bill_avg": _float(_col(r, "B")),
+        })
     return pd.DataFrame(rows)
 
 
 def _parse_complaints(path: Path) -> pd.DataFrame:
-    """bronze_anrt_complaints: year, quarter, operator, complaint_type, count."""
-    raw = _read_raw(path)
-    hr = _find_header_row(
-        raw, ["année", "annee", "year", "plainte", "complaint", "opérateur", "trimestre"]
-    )
-    df = _make_df(raw, hr)
+    """bronze_anrt_complaints: year, quarter, operator, complaint_type, count.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    op_col = _first_col(df, ["operateur", "opérateur", "operator"])
-    type_col = _first_col(df, ["type", "motif", "catégorie", "categorie", "complaint"])
-    count_col = _first_col(df, ["nombre", "count", "total", "plaintes"])
+    Complaint data is aggregate (no operator breakdown). All metric columns
+    are unpivoted to long form with complaint_type = legend description.
+    """
+    legend, data = _parse_anrt_xlsx(path)
+    metric_cols = [c for c in data.columns if c and c != "period" and c is not None]
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
+        for col in metric_cols:
+            val = _int(_col(r, col))
+            if val is None:
+                continue
+            rows.append({
                 "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "operator": _norm_operator(r.get(op_col)),
-                "complaint_type": str(r.get(type_col, "")).strip() or None,
-                "count": _int(r.get(count_col)),
-            }
-        )
+                "quarter": quarter,
+                "operator": None,
+                "complaint_type": legend.get(col, col),
+                "count": val,
+            })
     return pd.DataFrame(rows)
 
 
 def _parse_portability(path: Path, segment: str) -> pd.DataFrame:
-    """bronze_anrt_portability: year, quarter, segment, ported_numbers."""
-    raw = _read_raw(path)
-    hr = _find_header_row(
-        raw, ["année", "annee", "year", "portabilité", "portabilite", "numéros", "trimestre"]
-    )
-    df = _make_df(raw, hr)
+    """bronze_anrt_portability: year, quarter, segment, ported_numbers.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    ported_col = _first_col(
-        df, ["portés", "portes", "ported", "numéros portés", "nombre", "total"]
-    )
+    Mobile: B = demandes abouties (successful ports)
+    Fixed:  D = demandes abouties (successful ports)
+    """
+    _, data = _parse_anrt_xlsx(path)
+    # Use the last non-None column as the "successful" count
+    code = "B" if segment == "mobile" else "D"
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "segment": segment,
-                "ported_numbers": _int(r.get(ported_col)),
-            }
-        )
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "segment": segment,
+            "ported_numbers": _int(_col(r, code)),
+        })
     return pd.DataFrame(rows)
 
 
 def _parse_usage_avg(path: Path) -> pd.DataFrame:
-    """bronze_anrt_usage_avg: year, quarter, mobile_minutes, fixed_minutes."""
-    raw = _read_raw(path)
-    hr = _find_header_row(
-        raw, ["année", "annee", "year", "usage", "minutes", "mobile", "fixe", "trimestre"]
-    )
-    df = _make_df(raw, hr)
+    """bronze_anrt_usage_avg: year, quarter, mobile_minutes, fixed_minutes.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    mob_col = _first_col(df, ["mobile", "usage mobile", "minutes mobile"])
-    fix_col = _first_col(df, ["fixe", "usage fixe", "minutes fixe", "minutes fixes"])
+    A = mobile global (en minutes)
+    D = fixe (en minutes)
+    """
+    _, data = _parse_anrt_xlsx(path)
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "mobile_minutes": _float(r.get(mob_col)),
-                "fixed_minutes": _float(r.get(fix_col)),
-            }
-        )
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "mobile_minutes": _float(_col(r, "A")),
+            "fixed_minutes": _float(_col(r, "D")),
+        })
     return pd.DataFrame(rows)
 
 
 def _parse_ip(path: Path) -> pd.DataFrame:
-    """bronze_anrt_ip: year, ipv4_count, ipv6_prefixes."""
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "ipv4", "ipv6", "adresses"])
-    df = _make_df(raw, hr)
+    """bronze_anrt_ip: year, ipv4_count, ipv6_prefixes.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    ipv4_col = _first_col(df, ["ipv4", "adresses ipv4", "nombre ipv4"])
-    ipv6_col = _first_col(df, ["ipv6", "préfixes ipv6", "prefixes ipv6"])
+    Data is semi-annual (S1/S2). We keep both records per year — downstream
+    Silver can pick end-of-period values.
+    A = adresses IPv4 allouées (en milliers)
+    IPv6 data not available in this source.
+    """
+    _, data = _parse_anrt_xlsx(path)
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, _ = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "ipv4_count": _int(r.get(ipv4_col)),
-                "ipv6_prefixes": _int(r.get(ipv6_col)),
-            }
-        )
-    return pd.DataFrame(rows)
+        rows.append({
+            "year": year,
+            "ipv4_count": _int(_col(r, "A")),
+            "ipv6_prefixes": None,
+        })
+    # Deduplicate: keep last record per year (end-of-year value)
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.drop_duplicates(subset=["year"], keep="last")
+    return df
 
 
 def _parse_data_links(path: Path) -> pd.DataFrame:
-    """bronze_anrt_data_links: year, quarter, link_type, count."""
-    raw = _read_raw(path)
-    hr = _find_header_row(
-        raw, ["année", "annee", "year", "liaison", "link", "type", "trimestre"]
-    )
-    df = _make_df(raw, hr)
+    """bronze_anrt_data_links: year, quarter, link_type, count.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    type_col = _first_col(df, ["type", "liaison", "link type"])
-    count_col = _first_col(df, ["nombre", "count", "total", "liaisons"])
+    All metric columns unpivoted to long form. link_type = legend description.
+    """
+    legend, data = _parse_anrt_xlsx(path)
+    metric_cols = [c for c in data.columns if c and c != "period" and c is not None]
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
+        for col in metric_cols:
+            val = _int(_col(r, col))
+            if val is None:
+                continue
+            rows.append({
                 "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "link_type": str(r.get(type_col, "")).strip() or None,
-                "count": _int(r.get(count_col)),
-            }
-        )
+                "quarter": quarter,
+                "link_type": legend.get(col, col),
+                "count": val,
+            })
     return pd.DataFrame(rows)
 
 
 def _parse_tic_survey(path: Path) -> pd.DataFrame:
     """bronze_anrt_tic_survey: year, indicator, value, unit.
 
-    TIC files are wide — each column is an indicator. We unpivot to long.
+    Annual data. All metric columns unpivoted to long form.
+    indicator = legend description; unit extracted from "(en X)" in description.
     """
-    raw = _read_raw(path)
-    hr = _find_header_row(raw, ["année", "annee", "year", "indicateur", "indicator", "enquête"])
-    df = _make_df(raw, hr)
+    legend, data = _parse_anrt_xlsx(path)
+    metric_cols = [c for c in data.columns if c and c != "period" and c is not None]
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    ind_col = _first_col(df, ["indicateur", "indicator", "libellé", "libelle"])
-    val_col = _first_col(df, ["valeur", "value", "résultat", "resultat"])
-    unit_col = _first_col(df, ["unité", "unite", "unit"])
+    def _unit(desc: str) -> str | None:
+        m = re.search(r"\(en ([^)]+)\)", desc)
+        return m.group(1) if m else None
 
     rows = []
-    # If there's an explicit indicator column, use long form directly
-    if ind_col and val_col:
-        for _, r in df.iterrows():
-            year = _int(r.get(year_col))
-            if year is None:
+    for _, r in data.iterrows():
+        year, _ = _parse_period(r["period"])
+        if year is None:
+            continue
+        for col in metric_cols:
+            val = _float(_col(r, col))
+            if val is None:
                 continue
-            rows.append(
-                {
-                    "year": year,
-                    "indicator": str(r.get(ind_col, "")).strip() or None,
-                    "value": _float(r.get(val_col)),
-                    "unit": str(r.get(unit_col, "")).strip() or None if unit_col else None,
-                }
-            )
-    else:
-        # Wide layout — unpivot metric columns
-        dim_cols = [c for c in [year_col] if c]
-        metric_cols = [c for c in df.columns if c not in dim_cols and c]
-        for _, r in df.iterrows():
-            year = _int(r.get(year_col))
-            if year is None:
-                continue
-            for col in metric_cols:
-                val = _float(r.get(col))
-                if val is None:
-                    continue
-                m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", str(col))
-                indicator = m.group(1).strip() if m else str(col).strip()
-                unit = m.group(2).strip() if m else None
-                rows.append({"year": year, "indicator": indicator, "value": val, "unit": unit})
+            desc = legend.get(col, col)
+            rows.append({
+                "year": year,
+                "indicator": desc,
+                "value": val,
+                "unit": _unit(desc),
+            })
     return pd.DataFrame(rows)
 
 
 def _parse_domains(path: Path) -> pd.DataFrame:
-    """bronze_anrt_domains: year, quarter, active_domains."""
-    raw = _read_raw(path)
-    hr = _find_header_row(
-        raw, ["année", "annee", "year", "domaine", "domain", ".ma", "trimestre"]
-    )
-    df = _make_df(raw, hr)
+    """bronze_anrt_domains: year, quarter, active_domains.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    dom_col = _first_col(df, ["domaines", "domains", "nombre", "total", "actifs", ".ma"])
+    A = Parc des noms de domaine «.ma» (cumulative total)
+    """
+    _, data = _parse_anrt_xlsx(path)
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "active_domains": _int(r.get(dom_col)),
-            }
-        )
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "active_domains": _int(_col(r, "A")),
+        })
     return pd.DataFrame(rows)
 
 
 def _parse_payphones(path: Path) -> pd.DataFrame:
-    """bronze_anrt_payphones: year, quarter, total_payphones."""
-    raw = _read_raw(path)
-    hr = _find_header_row(
-        raw, ["année", "annee", "year", "publiphone", "payphone", "cabine", "trimestre"]
-    )
-    df = _make_df(raw, hr)
+    """bronze_anrt_payphones: year, quarter, total_payphones.
 
-    year_col = _first_col(df, ["année", "annee", "year", "an"])
-    qtr_col = _first_col(df, ["trimestre", "quarter", "trim"])
-    count_col = _first_col(df, ["publiphones", "payphones", "cabines", "nombre", "total"])
+    AD = total lignes de publiphones (IAM + Orange)
+    """
+    _, data = _parse_anrt_xlsx(path)
 
     rows = []
-    for _, r in df.iterrows():
-        year = _int(r.get(year_col))
+    for _, r in data.iterrows():
+        year, quarter = _parse_period(r["period"])
         if year is None:
             continue
-        rows.append(
-            {
-                "year": year,
-                "quarter": _quarter(r.get(qtr_col)),
-                "total_payphones": _int(r.get(count_col)),
-            }
-        )
+        rows.append({
+            "year": year,
+            "quarter": quarter,
+            "total_payphones": _int(_col(r, "AD")),
+        })
     return pd.DataFrame(rows)
-
-
-def _first_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
-    """Return the first column name that matches any candidate (substring, case-insensitive)."""
-    cols_lower = {c.lower(): c for c in df.columns}
-    for cand in candidates:
-        cand_l = cand.lower()
-        # Exact match first
-        if cand_l in cols_lower:
-            return cols_lower[cand_l]
-        # Substring match
-        for col_l, col in cols_lower.items():
-            if cand_l in col_l:
-                return col
-    return None
 
 
 # ── Dataset registry ───────────────────────────────────────────────────────────
@@ -704,7 +692,6 @@ _DATASETS: list[DatasetConfig] = [
             )
         """,
     ),
-    # Portability mobile + fixed share the same table; loaded in two passes
     DatasetConfig(
         dataset_id="portabilites-des-numeros-mobiles-2016-2022",
         bronze_table="bronze_anrt_portability",
@@ -829,7 +816,6 @@ _DATASETS: list[DatasetConfig] = [
 def _ckan_download_url(dataset_id: str) -> str:
     """Return the first XLSX resource download URL for a CKAN dataset."""
     url = f"{ANRT_BASE_URL.rstrip('/')}/package_show?id={dataset_id}"
-    logger.debug("CKAN package_show: %s", url)
     resp = requests.get(url, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
     payload = resp.json()
@@ -843,8 +829,6 @@ def _ckan_download_url(dataset_id: str) -> str:
         name = (res.get("name") or "").lower()
         if fmt in {"XLSX", "XLS"} or name.endswith((".xlsx", ".xls")):
             return res["url"]
-
-    # Fall back to first resource with a download URL
     for res in resources:
         if res.get("url"):
             return res["url"]
@@ -854,7 +838,7 @@ def _ckan_download_url(dataset_id: str) -> str:
 
 # ── HTTP downloader ────────────────────────────────────────────────────────────
 def _download_xlsx(url: str, dest: Path) -> Path:
-    """Download url to dest; return dest path. Skip if already present."""
+    """Download url to dest. Skip if already present."""
     if dest.exists():
         logger.info("Already downloaded: %s", dest.name)
         return dest
@@ -880,11 +864,7 @@ def _load_to_bronze(
 ) -> int:
     """Create table if needed, delete stale rows for this source_file, insert df."""
     con.execute(cfg.ddl)
-
-    # Idempotent: remove any previous load from this exact file
-    con.execute(
-        f"DELETE FROM {cfg.bronze_table} WHERE source_file = ?", [source_file]
-    )
+    con.execute(f"DELETE FROM {cfg.bronze_table} WHERE source_file = ?", [source_file])
 
     if df.empty:
         logger.warning("%s produced 0 rows — skipping insert", cfg.bronze_table)
@@ -942,7 +922,6 @@ def run(dataset_ids: list[str] | None = None) -> dict[str, int]:
             except Exception:
                 logger.exception("Failed to load %s into %s", xlsx_path.name, cfg.bronze_table)
                 continue
-
     finally:
         con.close()
 
