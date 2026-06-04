@@ -19,6 +19,7 @@ x-airflow-common: &airflow-common
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/plugins:/opt/airflow/plugins
     - ./ingestion:/opt/airflow/ingestion
+    - ./great_expectations:/opt/airflow/great_expectations
     - ./dbt:/opt/dbt
     - ./data:/opt/data
     - airflow-logs:/opt/airflow/logs

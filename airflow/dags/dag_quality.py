@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import timedelta
 
 from airflow import DAG
@@ -12,61 +11,47 @@ from airflow.utils.dates import days_ago
 
 logger = logging.getLogger(__name__)
 
-_GE_RUNNER = "/opt/airflow/great_expectations/runner.py"
-
-
-def _call_runner(fn_name: str) -> str:
-    """Import and call a function from great_expectations/runner.py."""
-    import importlib.util
-    import sys
-
-    if _GE_RUNNER not in [getattr(s, "__file__", None) for s in sys.modules.values()]:
-        spec = importlib.util.spec_from_file_location("ge_runner", _GE_RUNNER)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        sys.modules["ge_runner"] = mod
-    else:
-        mod = sys.modules["ge_runner"]
-
-    fn = getattr(mod, fn_name)
-    result = fn()
-    logger.info(
-        "%s: %d/%d checks passed", result.layer.upper(), result.passed, result.total
-    )
-    for detail in result.details:
-        check = detail.get("check") or detail.get("table", "?")
-        ok = detail.get("passed", False)
-        logger.info("  %s %s", "✓" if ok else "✗", check)
-    return f"{result.layer}: {result.passed}/{result.total} passed"
-
 
 def run_checkpoint_bronze() -> str:
-    return _call_runner("run_bronze_checkpoint")
+    from ge_runner import run_bronze_checkpoint
+    result = run_bronze_checkpoint()
+    logger.info("BRONZE: %d/%d checks passed", result.passed, result.total)
+    for d in result.details:
+        check = d.get("check") or d.get("table", "?")
+        logger.info("  %s %s", "✓" if d.get("passed") else "✗", check)
+    return f"bronze: {result.passed}/{result.total} passed"
 
 
 def run_checkpoint_silver() -> str:
-    return _call_runner("run_silver_checkpoint")
+    from ge_runner import run_silver_checkpoint
+    result = run_silver_checkpoint()
+    logger.info("SILVER: %d/%d checks passed", result.passed, result.total)
+    for d in result.details:
+        check = d.get("check") or d.get("table", "?")
+        logger.info("  %s %s", "✓" if d.get("passed") else "✗", check)
+    return f"silver: {result.passed}/{result.total} passed"
 
 
 def run_checkpoint_gold() -> str:
-    return _call_runner("run_gold_checkpoint")
+    from ge_runner import run_gold_checkpoint
+    result = run_gold_checkpoint()
+    logger.info("GOLD: %d/%d checks passed", result.passed, result.total)
+    for d in result.details:
+        check = d.get("check") or d.get("table", "?")
+        logger.info("  %s %s", "✓" if d.get("passed") else "✗", check)
+    return f"gold: {result.passed}/{result.total} passed"
 
 
 def publish_quality_report(**context) -> str:
-    import importlib.util
-    import sys
-
-    spec = importlib.util.spec_from_file_location("ge_runner", _GE_RUNNER)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-
+    from ge_runner import (
+        publish_report,
+        run_bronze_checkpoint,
+        run_gold_checkpoint,
+        run_silver_checkpoint,
+    )
     run_date = context.get("ds", "unknown")
-    results = [
-        mod.run_bronze_checkpoint(),
-        mod.run_silver_checkpoint(),
-        mod.run_gold_checkpoint(),
-    ]
-    path = mod.publish_report(results, run_date)
+    results = [run_bronze_checkpoint(), run_silver_checkpoint(), run_gold_checkpoint()]
+    path = publish_report(results, run_date)
     logger.info("Quality report published: %s", path)
     return f"report: {path}"
 
