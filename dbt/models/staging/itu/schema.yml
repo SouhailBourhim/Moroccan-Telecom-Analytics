@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: stg_itu__morocco
+    description: ITU ICT indicator data for Morocco (2000-2024)
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: indicator_code
+        tests: [not_null]
+      - name: indicator_name
+        tests: [not_null]
+      - name: value
+        tests: [not_null]

@@ -1,0 +1,79 @@
+version: 2
+
+models:
+  - name: stg_anrt__mobile
+    description: Mobile subscriber counts per operator, quarter, and year
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests: [not_null]
+      - name: operator
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Maroc Telecom', 'Orange Maroc', 'Inwi']
+      - name: total_subs
+        description: Total mobile subscriptions (thousands)
+
+  - name: stg_anrt__internet
+    description: Internet subscriptions by technology and quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: technology
+        tests: [not_null]
+      - name: subscribers
+        tests: [not_null]
+
+  - name: stg_anrt__fixed
+    description: Fixed-line subscriptions by quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: total_subs
+        tests: [not_null]
+
+  - name: stg_anrt__qos
+    description: Quality-of-service indicators
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: indicator
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+
+  - name: stg_anrt__traffic
+    description: Voice and SMS outgoing traffic by segment and quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: segment
+        tests: [not_null]
+      - name: voice_minutes
+        tests: [not_null]
+
+  - name: stg_anrt__arpm
+    description: Average revenue per minute and average internet bill
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: arpm
+        tests: [not_null]
+
+  - name: stg_anrt__complaints
+    description: Consumer complaints by type and quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: complaint_count
+        tests: [not_null]
+
+  - name: stg_anrt__bandwidth
+    description: International internet bandwidth capacity in Gbps
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: capacity_gbps
+        tests: [not_null]
