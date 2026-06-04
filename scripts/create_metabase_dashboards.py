@@ -122,10 +122,10 @@ print(f"  Dashboard ID: {d2}")
 # ── Dashboard 3: QoS Scorecard ────────────────────────────────────────────────
 print("Creating Dashboard 3: QoS Scorecard …")
 c3a = create_card(
-    "QoS Voice Scores by Operator",
-    "SELECT year, operator, voice_qos_score FROM gold.mart_qos_scorecard WHERE voice_qos_score IS NOT NULL ORDER BY year, operator",
+    "QoS Voice Call Success Rate by Year",
+    "SELECT year, indicator, ROUND(AVG(value)::numeric, 4) AS avg_value\nFROM gold.mart_qos_scorecard\nWHERE indicator ILIKE '%réussite%voix%' OR indicator ILIKE '%appels voix%'\nGROUP BY year, indicator\nORDER BY year",
     display="bar",
-    viz_settings={"graph.dimensions": ["year", "operator"], "graph.metrics": ["voice_qos_score"]},
+    viz_settings={"graph.dimensions": ["year"], "graph.metrics": ["avg_value"]},
 )
 c3b = create_card(
     "QoS Scorecard — Full Table",
@@ -141,14 +141,14 @@ print(f"  Dashboard ID: {d3}")
 # ── Dashboard 4: Internet Evolution ──────────────────────────────────────────
 print("Creating Dashboard 4: Internet Evolution …")
 c4a = create_card(
-    "Broadband Penetration Over Time",
-    "SELECT year, quarter, ROUND(broadband_penetration_per_100, 2) AS broadband_pen FROM gold.mart_internet_evol ORDER BY year, quarter",
+    "Mobile Penetration per 100 Inhabitants",
+    "SELECT year, quarter, ROUND(mobile_penetration_per_100::numeric, 2) AS mobile_penetration_per_100\nFROM gold.mart_internet_evol\nORDER BY year, quarter",
     display="line",
-    viz_settings={"graph.dimensions": ["year"], "graph.metrics": ["broadband_pen"]},
+    viz_settings={"graph.dimensions": ["year"], "graph.metrics": ["mobile_penetration_per_100"]},
 )
 c4b = create_card(
     "Mobile vs Fixed Broadband Subscribers",
-    "SELECT year, mobile_broadband_subs, fixed_broadband_subs FROM gold.mart_internet_evol WHERE mobile_broadband_subs IS NOT NULL ORDER BY year",
+    "SELECT year, SUM(mobile_bb_subs) AS mobile_broadband_subs, SUM(adsl_subs + ftth_subs) AS fixed_broadband_subs\nFROM gold.mart_internet_evol WHERE mobile_bb_subs IS NOT NULL\nGROUP BY year ORDER BY year",
     display="bar",
     viz_settings={"graph.dimensions": ["year"], "graph.metrics": ["mobile_broadband_subs", "fixed_broadband_subs"]},
 )
@@ -167,10 +167,10 @@ print(f"  Dashboard ID: {d4}")
 # ── Dashboard 5: Morocco vs MENA Benchmarks ──────────────────────────────────
 print("Creating Dashboard 5: Morocco vs MENA Benchmarks …")
 c5a = create_card(
-    "Morocco Mobile Subscriptions vs ITU Indicators",
-    "SELECT year, indicator_name, morocco_value FROM gold.mart_benchmarks ORDER BY indicator_name, year",
+    "Morocco Key ITU Indicators Over Time",
+    "SELECT year, mobile_subs_total, fixed_bb_subs, internet_users_pct, intl_bandwidth_mbps\nFROM gold.mart_benchmarks\nORDER BY year",
     display="line",
-    viz_settings={"graph.dimensions": ["year"], "graph.metrics": ["morocco_value"]},
+    viz_settings={"graph.dimensions": ["year"], "graph.metrics": ["mobile_subs_total", "internet_users_pct"]},
 )
 c5b = create_card(
     "Benchmarks — Full Table",
