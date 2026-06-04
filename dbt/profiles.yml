@@ -1,7 +1,13 @@
 duckdb:
-  target: dev
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
   outputs:
+    # Used inside Docker containers (data volume mounted at /opt/data)
     dev:
       type: duckdb
       path: /opt/data/warehouse.duckdb
+      threads: 4
+    # Used for local development outside Docker
+    local:
+      type: duckdb
+      path: "{{ env_var('WAREHOUSE_PATH', 'data/warehouse.duckdb') }}"
       threads: 4
