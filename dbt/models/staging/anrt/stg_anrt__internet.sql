@@ -20,6 +20,7 @@ renamed as (
     where year is not null
       and subscribers is not null
       and cast(subscribers as bigint) > 0
+      and technology != 'Total'
 )
 
 select * from renamed
