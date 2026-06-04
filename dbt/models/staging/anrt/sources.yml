@@ -17,3 +17,10 @@ sources:
       - name: bronze_anrt_arpm
       - name: bronze_anrt_complaints
       - name: bronze_anrt_bandwidth
+      - name: bronze_anrt_portability
+      - name: bronze_anrt_usage_avg
+      - name: bronze_anrt_ip
+      - name: bronze_anrt_data_links
+      - name: bronze_anrt_tic_survey
+      - name: bronze_anrt_domains
+      - name: bronze_anrt_payphones

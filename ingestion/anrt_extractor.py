@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+import time
+
 import duckdb
 import pandas as pd
 import requests
@@ -813,11 +815,28 @@ _DATASETS: list[DatasetConfig] = [
 
 
 # ── CKAN client ────────────────────────────────────────────────────────────────
+def _http_get_with_retry(url: str, stream: bool = False, max_attempts: int = 3) -> requests.Response:
+    """GET url with exponential-backoff retry on 429/5xx responses."""
+    for attempt in range(1, max_attempts + 1):
+        resp = requests.get(url, stream=stream, timeout=REQUEST_TIMEOUT)
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+            wait = 2 ** attempt
+            logger.warning(
+                "HTTP %s from %s — retry %d/%d in %ds",
+                resp.status_code, url, attempt, max_attempts, wait,
+            )
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp
+    resp.raise_for_status()  # unreachable but satisfies type checkers
+    return resp
+
+
 def _ckan_download_url(dataset_id: str) -> str:
     """Return the first XLSX resource download URL for a CKAN dataset."""
     url = f"{ANRT_BASE_URL.rstrip('/')}/package_show?id={dataset_id}"
-    resp = requests.get(url, timeout=REQUEST_TIMEOUT)
-    resp.raise_for_status()
+    resp = _http_get_with_retry(url)
     payload = resp.json()
 
     if not payload.get("success"):
@@ -845,8 +864,7 @@ def _download_xlsx(url: str, dest: Path) -> Path:
 
     logger.info("Downloading %s → %s", url, dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, stream=True, timeout=REQUEST_TIMEOUT) as r:
-        r.raise_for_status()
+    with _http_get_with_retry(url, stream=True) as r:
         with open(dest, "wb") as f:
             for chunk in r.iter_content(chunk_size=65_536):
                 f.write(chunk)

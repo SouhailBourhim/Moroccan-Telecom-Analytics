@@ -12,45 +12,73 @@ from airflow.utils.dates import days_ago
 logger = logging.getLogger(__name__)
 
 
-def run_checkpoint_bronze() -> str:
+def run_checkpoint_bronze(**context) -> str:
     from ge_runner import run_bronze_checkpoint
     result = run_bronze_checkpoint()
     logger.info("BRONZE: %d/%d checks passed", result.passed, result.total)
     for d in result.details:
         check = d.get("check") or d.get("table", "?")
         logger.info("  %s %s", "✓" if d.get("passed") else "✗", check)
+    context["ti"].xcom_push(key="bronze_result", value={
+        "layer": result.layer,
+        "passed": result.passed,
+        "failed": result.failed,
+        "total": result.total,
+        "details": result.details,
+    })
     return f"bronze: {result.passed}/{result.total} passed"
 
 
-def run_checkpoint_silver() -> str:
+def run_checkpoint_silver(**context) -> str:
     from ge_runner import run_silver_checkpoint
     result = run_silver_checkpoint()
     logger.info("SILVER: %d/%d checks passed", result.passed, result.total)
     for d in result.details:
         check = d.get("check") or d.get("table", "?")
         logger.info("  %s %s", "✓" if d.get("passed") else "✗", check)
+    context["ti"].xcom_push(key="silver_result", value={
+        "layer": result.layer,
+        "passed": result.passed,
+        "failed": result.failed,
+        "total": result.total,
+        "details": result.details,
+    })
     return f"silver: {result.passed}/{result.total} passed"
 
 
-def run_checkpoint_gold() -> str:
+def run_checkpoint_gold(**context) -> str:
     from ge_runner import run_gold_checkpoint
     result = run_gold_checkpoint()
     logger.info("GOLD: %d/%d checks passed", result.passed, result.total)
     for d in result.details:
         check = d.get("check") or d.get("table", "?")
         logger.info("  %s %s", "✓" if d.get("passed") else "✗", check)
+    context["ti"].xcom_push(key="gold_result", value={
+        "layer": result.layer,
+        "passed": result.passed,
+        "failed": result.failed,
+        "total": result.total,
+        "details": result.details,
+    })
     return f"gold: {result.passed}/{result.total} passed"
 
 
 def publish_quality_report(**context) -> str:
-    from ge_runner import (
-        publish_report,
-        run_bronze_checkpoint,
-        run_gold_checkpoint,
-        run_silver_checkpoint,
-    )
+    from ge_runner import CheckResult, publish_report
+
+    ti = context["ti"]
     run_date = context.get("ds", "unknown")
-    results = [run_bronze_checkpoint(), run_silver_checkpoint(), run_gold_checkpoint()]
+
+    results = []
+    for task_id, key in [
+        ("ge_checkpoint_bronze", "bronze_result"),
+        ("ge_checkpoint_silver", "silver_result"),
+        ("ge_checkpoint_gold", "gold_result"),
+    ]:
+        raw = ti.xcom_pull(task_ids=task_id, key=key)
+        if raw:
+            results.append(CheckResult(**raw))
+
     path = publish_report(results, run_date)
     logger.info("Quality report published: %s", path)
     return f"report: {path}"

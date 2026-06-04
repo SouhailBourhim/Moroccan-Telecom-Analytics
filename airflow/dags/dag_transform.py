@@ -54,7 +54,7 @@ with DAG(
 
     dbt_test_staging = BashOperator(
         task_id="dbt_test_staging",
-        bash_command=_DBT_CMD.format(cmd="test --select staging"),
+        bash_command=_DBT_CMD.format(cmd="test --select staging --fail-fast"),
         env=_DBT_ENV,
     )
 
@@ -72,19 +72,16 @@ with DAG(
 
     dbt_test_marts = BashOperator(
         task_id="dbt_test_marts",
-        bash_command=_DBT_CMD.format(cmd="test --select marts"),
+        bash_command=_DBT_CMD.format(cmd="test --select marts --fail-fast"),
         env=_DBT_ENV,
     )
 
-    _docs_cmd = (
-        "for i in 1 2 3 4 5; do "
-        + _DBT_CMD.format(cmd="docs generate")
-        + " && break || sleep 10; done"
-    )
     dbt_docs = BashOperator(
         task_id="dbt_docs_generate",
-        bash_command=_docs_cmd,
+        bash_command=_DBT_CMD.format(cmd="docs generate"),
         env=_DBT_ENV,
+        retries=4,
+        retry_delay=timedelta(seconds=10),
     )
 
     trigger_quality = TriggerDagRunOperator(

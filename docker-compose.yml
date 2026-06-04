@@ -3,7 +3,7 @@ x-airflow-common: &airflow-common
   image: morocco-telecom-airflow:latest
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-airflow}
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
@@ -15,6 +15,12 @@ x-airflow-common: &airflow-common
     RAW_DIR: /opt/data/raw
     WAREHOUSE_PATH: /opt/data/warehouse.duckdb
     PYTHONPATH: /opt/airflow
+    POSTGRES_DSN: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-airflow}
+  logging: &default-logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "10"
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/plugins:/opt/airflow/plugins
@@ -33,17 +39,18 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-airflow}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 5s
+    logging: *default-logging
     restart: always
 
   # ── Airflow init (one-shot) ─────────────────────────────────────────────────
@@ -57,8 +64,8 @@ services:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
-      _AIRFLOW_WWW_USER_USERNAME: admin
-      _AIRFLOW_WWW_USER_PASSWORD: admin
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_WWW_USER:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_WWW_PASSWORD:?AIRFLOW_WWW_PASSWORD must be set in .env}
     restart: "no"
 
   # ── Airflow webserver ───────────────────────────────────────────────────────
@@ -73,6 +80,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    logging: *default-logging
     restart: always
     depends_on:
       postgres:
@@ -90,6 +98,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    logging: *default-logging
     restart: always
     depends_on:
       postgres:
@@ -114,6 +123,7 @@ services:
       - metabase-data:/metabase-data
       - ./data:/opt/data:ro
       - ./metabase-plugins:/plugins
+    logging: *default-logging
     restart: always
 
 volumes:

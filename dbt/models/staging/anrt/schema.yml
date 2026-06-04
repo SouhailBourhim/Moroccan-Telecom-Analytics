@@ -10,7 +10,10 @@ models:
       - name: year
         tests: [not_null]
       - name: quarter
-        tests: [not_null]
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
       - name: operator
         tests:
           - not_null
@@ -18,6 +21,7 @@ models:
               values: ['Maroc Telecom', 'Orange Maroc', 'Inwi']
       - name: total_subs
         description: Total mobile subscriptions (thousands)
+        tests: [not_null]
 
   - name: stg_anrt__internet
     description: Internet subscriptions by technology and quarter
@@ -27,8 +31,16 @@ models:
     columns:
       - name: year
         tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
       - name: technology
-        tests: [not_null]
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['ADSL', 'FTTH', 'Mobile', 'Leased', 'Other']
       - name: subscribers
         tests: [not_null]
 
@@ -37,6 +49,11 @@ models:
     columns:
       - name: year
         tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
       - name: total_subs
         tests: [not_null]
 
@@ -45,6 +62,11 @@ models:
     columns:
       - name: year
         tests: [not_null]
+      - name: operator
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Maroc Telecom', 'Orange Maroc', 'Inwi']
       - name: indicator
         tests: [not_null]
       - name: value
@@ -55,6 +77,11 @@ models:
     columns:
       - name: year
         tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
       - name: segment
         tests: [not_null]
       - name: voice_minutes
@@ -65,6 +92,10 @@ models:
     columns:
       - name: year
         tests: [not_null]
+      - name: quarter
+        tests:
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
       - name: arpm
         tests: [not_null]
 
@@ -73,6 +104,11 @@ models:
     columns:
       - name: year
         tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
       - name: complaint_count
         tests: [not_null]
 
@@ -82,4 +118,89 @@ models:
       - name: year
         tests: [not_null]
       - name: capacity_gbps
+        tests: [not_null]
+
+  - name: stg_anrt__portability
+    description: Mobile and fixed number portability per quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
+      - name: segment
+        tests: [not_null]
+      - name: ported_numbers
+        tests: [not_null]
+
+  - name: stg_anrt__usage_avg
+    description: Average monthly outgoing usage (minutes) per subscriber
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
+
+  - name: stg_anrt__ip
+    description: IP address usage — IPv4 count and IPv6 prefix count (annual)
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: ipv4_count
+        tests: [not_null]
+
+  - name: stg_anrt__data_links
+    description: Enterprise data link circuits by type and quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
+      - name: link_type
+        tests: [not_null]
+      - name: link_count
+        tests: [not_null]
+
+  - name: stg_anrt__tic_survey
+    description: ICT survey results in long format (one row per indicator per year)
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: indicator
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+
+  - name: stg_anrt__domains
+    description: Active .ma domain name registrations per quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
+      - name: active_domains
+        tests: [not_null]
+
+  - name: stg_anrt__payphones
+    description: Payphone (publiphone) count per quarter
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
+      - name: total_payphones
         tests: [not_null]

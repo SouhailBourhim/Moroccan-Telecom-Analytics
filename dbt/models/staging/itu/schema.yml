@@ -7,7 +7,19 @@ models:
       - name: year
         tests: [not_null]
       - name: indicator_code
-        tests: [not_null]
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'i271'
+                - 'i112'
+                - 'i271p'
+                - 'i992b'
+                - 'i271mw'
+                - 'i99H'
+                - 'i4214'
+                - 'i741$'
+              quote: true
       - name: indicator_name
         tests: [not_null]
       - name: value

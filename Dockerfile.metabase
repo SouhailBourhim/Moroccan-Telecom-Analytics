@@ -1,3 +1,4 @@
 FROM metabase/metabase:v0.49.7
 USER root
 RUN apk add --no-cache libstdc++ libgcc libc6-compat
+USER metabase

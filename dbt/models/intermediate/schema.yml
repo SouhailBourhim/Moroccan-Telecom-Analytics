@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: int_market_share
+    description: Operator market share computed from staging mobile data
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests: [not_null]
+      - name: operator
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Maroc Telecom', 'Orange Maroc', 'Inwi']
+      - name: market_share_pct
+        description: Operator share of total mobile subscriptions (0–100)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+  - name: int_penetration_rates
+    description: Mobile and internet penetration per 100 inhabitants
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests: [not_null]
+      - name: mobile_penetration_per_100
+        description: Total mobile subscriptions per 100 inhabitants
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 200
+
+  - name: int_yoy_growth
+    description: Year-over-year growth rates for key KPIs (4-quarter lag)
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests: [not_null]
+      - name: mobile_yoy_growth_pct
+        description: YoY growth in total mobile subscriptions

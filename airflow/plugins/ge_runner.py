@@ -11,6 +11,7 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import duckdb
@@ -22,14 +23,31 @@ logger = logging.getLogger(__name__)
 _WAREHOUSE = os.environ.get("WAREHOUSE_PATH", "/opt/data/warehouse.duckdb")
 _REPORTS_DIR = pathlib.Path(os.environ.get("DATA_DIR", "/opt/data")) / "ge_reports"
 
+# Schema prefixes — match dbt profiles (+schema: silver / gold)
+_SILVER_SCHEMA = os.environ.get("DBT_SILVER_SCHEMA", "main_silver")
+_GOLD_SCHEMA = os.environ.get("DBT_GOLD_SCHEMA", "main_gold")
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _load_table(query: str) -> pd.DataFrame:
-    """Run *query* against the DuckDB warehouse; return a DataFrame."""
     con = duckdb.connect(_WAREHOUSE, read_only=True)
     try:
         return con.execute(query).df()
+    finally:
+        con.close()
+
+
+def _discover_bronze_tables() -> list[str]:
+    """Return all Bronze table names from the warehouse information schema."""
+    con = duckdb.connect(_WAREHOUSE, read_only=True)
+    try:
+        rows = con.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main' AND table_name LIKE 'bronze_%' "
+            "ORDER BY table_name"
+        ).fetchall()
+        return [r[0] for r in rows]
     finally:
         con.close()
 
@@ -66,18 +84,8 @@ class CheckResult:
 # ── Bronze checkpoint ─────────────────────────────────────────────────────────
 
 def run_bronze_checkpoint() -> CheckResult:
-    """Validate all Bronze tables have at least 10 rows."""
-    bronze_tables = [
-        "bronze_anrt_mobile",
-        "bronze_anrt_internet",
-        "bronze_anrt_fixed",
-        "bronze_anrt_qos",
-        "bronze_anrt_traffic",
-        "bronze_anrt_arpm",
-        "bronze_anrt_complaints",
-        "bronze_anrt_bandwidth",
-        "bronze_itu_morocco",
-    ]
+    """Validate all Bronze tables (auto-discovered) have at least 10 rows."""
+    bronze_tables = _discover_bronze_tables()
 
     context = ge.get_context()
     details: list[dict] = []
@@ -106,17 +114,14 @@ def run_bronze_checkpoint() -> CheckResult:
 # ── Silver checkpoint ─────────────────────────────────────────────────────────
 
 def run_silver_checkpoint() -> CheckResult:
-    """Validate Silver layer quality:
-    - stg_anrt__mobile: no negative subscriber counts
-    - mart_internet_evol: mobile_penetration_per_100 in [0, 200]
-    """
+    """Validate Silver layer quality."""
     context = ge.get_context()
     details: list[dict] = []
     passed = failed = 0
 
     # 1. Mobile staging: total_subs must be non-negative
     df_mobile = _load_table(
-        "SELECT total_subs FROM main_silver.stg_anrt__mobile WHERE total_subs IS NOT NULL"
+        f"SELECT total_subs FROM {_SILVER_SCHEMA}.stg_anrt__mobile WHERE total_subs IS NOT NULL"
     )
     v = _make_validator(
         context, df_mobile, "silver_mobile", "stg_mobile", "silver_mobile_suite"
@@ -134,9 +139,9 @@ def run_silver_checkpoint() -> CheckResult:
 
     # 2. Penetration: mobile_penetration_per_100 in [0, 200]
     df_pen = _load_table(
-        "SELECT mobile_penetration_per_100 "
-        "FROM main_gold.mart_internet_evol "
-        "WHERE mobile_penetration_per_100 IS NOT NULL"
+        f"SELECT mobile_penetration_per_100 "
+        f"FROM {_GOLD_SCHEMA}.mart_internet_evol "
+        f"WHERE mobile_penetration_per_100 IS NOT NULL"
     )
     v2 = _make_validator(
         context, df_pen, "silver_penetration", "stg_penetration", "silver_penetration_suite"
@@ -163,20 +168,16 @@ def run_silver_checkpoint() -> CheckResult:
 # ── Gold checkpoint ───────────────────────────────────────────────────────────
 
 def run_gold_checkpoint() -> CheckResult:
-    """Validate Gold layer quality:
-    - market_share_pct for Maroc Telecom: median in [30, 60]
-    - mart_market_overview: no null mobile_total_subs
-    - mart_benchmarks: at least 15 years of data
-    """
+    """Validate Gold layer quality."""
     context = ge.get_context()
     details: list[dict] = []
     passed = failed = 0
 
     # 1. Maroc Telecom market share median in [30, 60]
     df_ms = _load_table(
-        "SELECT market_share_pct "
-        "FROM main_gold.mart_operator_perf "
-        "WHERE operator = 'Maroc Telecom' AND market_share_pct IS NOT NULL"
+        f"SELECT market_share_pct "
+        f"FROM {_GOLD_SCHEMA}.mart_operator_perf "
+        f"WHERE operator = 'Maroc Telecom' AND market_share_pct IS NOT NULL"
     )
     v = _make_validator(
         context, df_ms, "gold_ms", "market_share", "gold_market_share_suite"
@@ -198,7 +199,7 @@ def run_gold_checkpoint() -> CheckResult:
         logger.warning("GOLD FAIL market_share_iam_median: %s", r.result)
 
     # 2. mart_market_overview: no null mobile_total_subs
-    df_ov = _load_table("SELECT mobile_total_subs FROM main_gold.mart_market_overview")
+    df_ov = _load_table(f"SELECT mobile_total_subs FROM {_GOLD_SCHEMA}.mart_market_overview")
     v2 = _make_validator(
         context, df_ov, "gold_overview", "market_overview", "gold_overview_suite"
     )
@@ -211,8 +212,8 @@ def run_gold_checkpoint() -> CheckResult:
         failed += 1
         logger.warning("GOLD FAIL overview_mobile_subs_not_null: %s", r2.result)
 
-    # 3. mart_benchmarks: at least 15 years of rows
-    df_bm = _load_table("SELECT year FROM main_gold.mart_benchmarks")
+    # 3. mart_benchmarks: at least 15 years of data
+    df_bm = _load_table(f"SELECT year FROM {_GOLD_SCHEMA}.mart_benchmarks")
     v3 = _make_validator(
         context, df_bm, "gold_benchmarks", "benchmarks", "gold_benchmarks_suite"
     )
@@ -235,11 +236,12 @@ def run_gold_checkpoint() -> CheckResult:
 # ── Report publisher ──────────────────────────────────────────────────────────
 
 def publish_report(results: list[CheckResult], run_date: str) -> str:
-    """Write a simple text summary of validation results to data/ge_reports/."""
+    """Write a text summary of validation results to data/ge_reports/."""
     _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    report_path = _REPORTS_DIR / f"quality_{run_date.replace('-', '')}.txt"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    report_path = _REPORTS_DIR / f"quality_{timestamp}.txt"
 
-    lines = [f"Quality Report — {run_date}", "=" * 50]
+    lines = [f"Quality Report — {run_date} (generated {timestamp})", "=" * 60]
     for res in results:
         status = "PASS" if res.success else "FAIL"
         lines.append(
