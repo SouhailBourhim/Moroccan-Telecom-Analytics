@@ -97,7 +97,7 @@ print(f"  Dashboard ID: {d1}")
 print("Creating Dashboard 2: Operator Performance …")
 c2a = create_card(
     "Market Share by Operator",
-    "SELECT year, operator, ROUND(market_share_pct, 1) AS market_share_pct FROM gold.mart_operator_perf ORDER BY year, operator",
+    "SELECT year, operator, ROUND(market_share_pct::numeric, 1) AS market_share_pct FROM gold.mart_operator_perf ORDER BY year, operator",
     display="bar",
     viz_settings={"graph.dimensions": ["year", "operator"], "graph.metrics": ["market_share_pct"]},
 )
