@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: mart_market_overview
+    description: Top-level KPI per year and quarter. Subscriber counts in thousands.
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests: [not_null]
+      - name: mobile_total_subs
+        tests: [not_null]
+
+  - name: mart_operator_perf
+    description: Per-operator market share and performance metrics by quarter.
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests: [not_null]
+      - name: operator
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Maroc Telecom', 'Orange Maroc', 'Inwi']
+      - name: market_share_pct
+        tests: [not_null]
+
+  - name: mart_qos_scorecard
+    description: Quality-of-service indicators from ANRT measurement campaigns.
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: indicator
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+
+  - name: mart_internet_evol
+    description: Internet technology mix per quarter. Subscriber counts in thousands.
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: quarter
+        tests: [not_null]
+      - name: total_internet_subs
+        tests: [not_null]
+
+  - name: mart_benchmarks
+    description: ITU indicators for Morocco — one row per year (2000-2024).
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: mobile_subs_total
+        tests: [not_null]
