@@ -19,6 +19,7 @@ renamed as (
     where year is not null
       and operator is not null
       and operator != 'Total'
+      and total_subs is not null
 )
 
 select * from renamed
