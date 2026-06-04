@@ -1,4 +1,4 @@
-"""dag_quality — triggered by dag_transform: GE checkpoints → publish HTML report."""
+"""dag_quality — triggered by dag_transform: GE validations → publish report."""
 
 from __future__ import annotations
 
@@ -12,67 +12,63 @@ from airflow.utils.dates import days_ago
 
 logger = logging.getLogger(__name__)
 
-_GE_DIR = os.environ.get("GE_DIR", "/opt/airflow/great_expectations")
-_DATA_DIR = os.environ.get("DATA_DIR", "/opt/data")
-_GE_REPORTS_DIR = os.path.join(_DATA_DIR, "ge_reports")
+_GE_RUNNER = "/opt/airflow/great_expectations/runner.py"
 
 
-def _run_checkpoint(checkpoint_name: str) -> str:
-    """Run a single Great Expectations checkpoint by name."""
-    try:
-        import great_expectations as ge
-    except ImportError:
-        logger.warning("great_expectations not installed — skipping %s", checkpoint_name)
-        return f"skipped (no GE): {checkpoint_name}"
+def _call_runner(fn_name: str) -> str:
+    """Import and call a function from great_expectations/runner.py."""
+    import importlib.util
+    import sys
 
-    context = ge.get_context(context_root_dir=_GE_DIR)
-    result = context.run_checkpoint(checkpoint_name=checkpoint_name)
-
-    if result.success:
-        logger.info("Checkpoint %s: PASSED", checkpoint_name)
-        return f"passed: {checkpoint_name}"
+    if _GE_RUNNER not in [getattr(s, "__file__", None) for s in sys.modules.values()]:
+        spec = importlib.util.spec_from_file_location("ge_runner", _GE_RUNNER)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules["ge_runner"] = mod
     else:
-        failed = [
-            v["expectation_config"]["expectation_type"]
-            for v in result.run_results.values()
-            for v in v.get("validation_result", {}).get("results", [])
-            if not v.get("success")
-        ]
-        logger.warning("Checkpoint %s: FAILED — %s", checkpoint_name, failed[:5])
-        return f"failed: {checkpoint_name}"
+        mod = sys.modules["ge_runner"]
+
+    fn = getattr(mod, fn_name)
+    result = fn()
+    logger.info(
+        "%s: %d/%d checks passed", result.layer.upper(), result.passed, result.total
+    )
+    for detail in result.details:
+        check = detail.get("check") or detail.get("table", "?")
+        ok = detail.get("passed", False)
+        logger.info("  %s %s", "✓" if ok else "✗", check)
+    return f"{result.layer}: {result.passed}/{result.total} passed"
 
 
 def run_checkpoint_bronze() -> str:
-    return _run_checkpoint("bronze_checkpoint")
+    return _call_runner("run_bronze_checkpoint")
 
 
 def run_checkpoint_silver() -> str:
-    return _run_checkpoint("silver_checkpoint")
+    return _call_runner("run_silver_checkpoint")
 
 
 def run_checkpoint_gold() -> str:
-    return _run_checkpoint("gold_checkpoint")
+    return _call_runner("run_gold_checkpoint")
 
 
 def publish_quality_report(**context) -> str:
-    """Collect GE HTML reports from the run and log their paths."""
-    import glob
-    import pathlib
+    import importlib.util
+    import sys
 
-    pathlib.Path(_GE_REPORTS_DIR).mkdir(parents=True, exist_ok=True)
+    spec = importlib.util.spec_from_file_location("ge_runner", _GE_RUNNER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
 
-    # GE writes HTML under <GE_DIR>/uncommitted/data_docs/
-    html_files = glob.glob(
-        os.path.join(_GE_DIR, "uncommitted", "data_docs", "**", "*.html"),
-        recursive=True,
-    )
-    logger.info("Quality report HTML files generated: %d", len(html_files))
-    for f in html_files:
-        logger.info("  %s", f)
-
-    run_date = context["ds"]
-    logger.info("Quality check run complete for %s", run_date)
-    return f"report published for {run_date}: {len(html_files)} HTML file(s)"
+    run_date = context.get("ds", "unknown")
+    results = [
+        mod.run_bronze_checkpoint(),
+        mod.run_silver_checkpoint(),
+        mod.run_gold_checkpoint(),
+    ]
+    path = mod.publish_report(results, run_date)
+    logger.info("Quality report published: %s", path)
+    return f"report: {path}"
 
 
 default_args = {
