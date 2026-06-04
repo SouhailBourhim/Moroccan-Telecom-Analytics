@@ -11,24 +11,24 @@ flowchart TD
     A["**ANRT** — data.gov.ma\n16 XLSX datasets · 2006–2022"]:::source --> DI
     B["**ITU DataHub** API\n8 ICT indicators · 2000–2024"]:::source --> DI
 
-    DI["⚙️ **dag_ingest**\n@monthly"]:::dag --> BRZ
+    DI["**dag_ingest**\n@monthly"]:::dag --> BRZ
 
-    BRZ[("🗄️ **Bronze**\n16 raw tables\nDuckDB")]:::layer --> DT
+    BRZ[("**Bronze**\n16 raw tables\nDuckDB")]:::layer --> DT
 
-    DT["⚙️ **dag_transform**\ntriggered"]:::dag --> SLV
+    DT["**dag_transform**\ntriggered"]:::dag --> SLV
 
-    SLV[("🥈 **Silver**\n16 staging views\ndbt")]:::layer --> INT
+    SLV[("**Silver**\n16 staging views\ndbt")]:::layer --> INT
 
     INT[("**Intermediate**\n3 ephemeral models\nmarket share · penetration · YoY")]:::layer --> GLD
 
-    GLD[("🥇 **Gold**\n5 mart tables\ndbt")]:::layer --> DQ
+    GLD[("**Gold**\n5 mart tables\ndbt")]:::layer --> DQ
     GLD --> PG
 
-    DQ["✅ **dag_quality**\nGreat Expectations\n21 checks"]:::dag
+    DQ["**dag_quality**\nGreat Expectations\n21 checks"]:::dag
 
-    PG[("🐘 **PostgreSQL**\ngold schema")]:::layer --> MB
+    PG[("**PostgreSQL**\ngold schema")]:::layer --> MB
 
-    MB["📊 **Metabase**\n5 dashboards"]:::viz
+    MB["**Metabase**\n5 dashboards"]:::viz
 
     classDef source fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
     classDef dag fill:#fef3c7,stroke:#f59e0b,color:#78350f
