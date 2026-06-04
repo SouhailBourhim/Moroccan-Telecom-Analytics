@@ -72,10 +72,12 @@ flowchart TD
 
 | | |
 |---|---|
-| ![Airflow DAG graph](docs/screenshots/airflow_dag.png) | ![Market Overview dashboard](docs/screenshots/dashboard_market_overview.png) |
-| *Airflow — dag_transform task graph* | *Metabase — Market Overview dashboard* |
-| ![Operator Performance dashboard](docs/screenshots/dashboard_operator_perf.png) | ![Internet Evolution dashboard](docs/screenshots/dashboard_internet_evol.png) |
-| *Metabase — Operator Performance* | *Metabase — Internet Evolution* |
+| ![Airflow dag_transform grid](docs/screenshots/airflow_dag_transform.png) | ![Airflow dag_ingest grid](docs/screenshots/airflow_dag_ingest.png) |
+| *Airflow — dag_transform (8 tasks)* | *Airflow — dag_ingest (5 tasks)* |
+| ![Market Overview dashboard](docs/screenshots/dashboard_market_overview.png) | ![Operator Performance dashboard](docs/screenshots/dashboard_operator_perf.png) |
+| *Metabase — Market Overview* | *Metabase — Operator Performance* |
+| ![Internet Evolution dashboard](docs/screenshots/dashboard_internet_evol.png) | ![Benchmarks dashboard](docs/screenshots/dashboard_benchmarks.png) |
+| *Metabase — Internet Evolution* | *Metabase — Morocco vs MENA Benchmarks* |
 
 ---
 
