@@ -251,12 +251,13 @@ dag_quality  (triggered)
 | 8 | Great Expectations fluent API runner, 14 checks across 3 layers | ✅ |
 | 9 | Metabase dashboards via PostgreSQL export; 5 dashboards live | ✅ |
 | Improvements | Cross-cutting fixes: security, reliability, test coverage, missing models | ✅ |
+| End-to-end | First full Docker run: 17/17 DAG tasks green, 68 dbt tests, 21/21 GE checks | ✅ |
 
 ---
 
 ## Post-Phase Improvements
 
-After the initial 9-phase build, a full project audit was performed. The findings and fixes are documented in [`docs/improvements.md`](docs/improvements.md). Summary:
+After the initial 9-phase build, a full project audit was performed and a first end-to-end Docker run was executed. The findings, fixes, and validation result are documented in [`docs/improvements.md`](docs/improvements.md). Summary:
 
 | Severity | Fixed |
 |---|---|
@@ -266,3 +267,4 @@ After the initial 9-phase build, a full project audit was performed. The finding
 | Reliability | CKAN retry logic, XCom-based quality report, seeds extended to 2024, log rotation |
 | Test coverage | `accepted_values` on all categorical columns, intermediate schema.yml, 3 new singular tests |
 | Polish | Idempotent dashboard script, Airflow-native retries, timestamped GE reports |
+| Runtime (Docker run) | `Total` rows in internet staging, Inwi null subs 2006–2008, quarter type mismatch in continuity test |

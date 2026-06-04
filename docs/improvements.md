@@ -1,9 +1,11 @@
 # Post-Phase Improvements
 
 **Status:** ✅ Complete  
-**Commit:** `3a2d324`
+**Commits:** `3a2d324` (audit fixes A–F) · `e16ce6a` · `49fafc6` · `da91ea4` · `a9f0a89` (runtime fixes)
 
 After completing all 9 phases a full project audit was performed. Findings were grouped into six fix phases (A–F) by severity. All 26 files changed in a single commit.
+
+These were followed by a **first full end-to-end Docker pipeline run**, which caught three additional data issues. See [Runtime Fixes (first Docker run)](#runtime-fixes-first-docker-run) at the bottom.
 
 ---
 
@@ -233,3 +235,80 @@ All queries in the runner use these constants.
 **Problem:** Reports were named `quality_YYYYMMDD.txt`. Triggering `dag_quality` twice on the same day overwrote the first report with no warning.
 
 **Fix:** Reports are now named `quality_YYYYMMDD_HHMMSS.txt` using a UTC timestamp at report generation time. Reports are never overwritten.
+
+---
+
+## Runtime Fixes (first Docker run)
+
+These three issues were discovered during the first full end-to-end pipeline run inside Docker (`dag_ingest` → `dag_transform` → `dag_quality`). They were not caught by static analysis or local testing because they required the real Bronze data to be loaded first.
+
+---
+
+### R1 — `stg_anrt__internet` passed `'Total'` technology rows to Silver
+
+**Commits:** `e16ce6a`  
+**File:** `dbt/models/staging/anrt/stg_anrt__internet.sql`
+
+**Problem:** The `dbt_test_staging` task failed with `accepted_values_stg_anrt__internet_technology__ADSL__FTTH__Mobile__Leased__Other: FAIL 1`. The Bronze table `bronze_anrt_internet` contains a `'Total'` row per period (a summary row summing all technologies), which is faithful to the source XLSX. The staging model had no filter for it, so `'Total'` passed through to Silver and failed the `accepted_values` test.
+
+This is the same pattern as the `'Total'` operator row in `bronze_anrt_mobile` (documented in Phase 5), but it was missed in the internet staging model.
+
+**Fix:** Added `AND technology != 'Total'` to the WHERE clause in `stg_anrt__internet.sql`.
+
+---
+
+### R2 — `stg_anrt__mobile` passed null `total_subs` rows to Silver
+
+**Commit:** `da91ea4`  
+**File:** `dbt/models/staging/anrt/stg_anrt__mobile.sql`
+
+**Problem:** `dbt_test_staging` failed with `not_null_stg_anrt__mobile_total_subs: FAIL 10`. Inwi (formerly Wana Corporate) did not have subscribers in 2006–2008 — those 10 rows exist in Bronze with `total_subs = NULL`, which is a faithful copy of the source. The staging model filtered `operator != 'Total'` and `operator IS NOT NULL` but not `total_subs IS NOT NULL`, so null subscription rows reached Silver.
+
+**Fix:** Added `AND total_subs IS NOT NULL` to the WHERE clause in `stg_anrt__mobile.sql`. These pre-launch rows carry no information and would cause NULL propagation in market share and penetration calculations.
+
+---
+
+### R3 — Time-continuity test failed on integer vs varchar quarter comparison
+
+**Commit:** `49fafc6`  
+**File:** `dbt/tests/assert_quarterly_time_continuity.sql`
+
+**Problem:** `dbt_test_staging` failed with `Runtime Error: Could not convert string 'Q4' to INT32`. The test joined `stg_anrt__mobile.quarter` (VARCHAR: `'Q1'`, `'Q2'`, ...) against `dim_period.quarter` (INTEGER: `1`, `2`, ...). DuckDB attempted to cast the VARCHAR side to INT32 for the comparison and failed.
+
+**Fix:** In the `all_quarters` CTE, wrapped the `dim_period.quarter` integer in a `'Q' || CAST(quarter AS VARCHAR)` expression to produce the same format as the staging model before the join.
+
+---
+
+## End-to-End Validation Result
+
+First full pipeline run completed successfully on 2026-06-04:
+
+```
+dag_ingest    ✅  5/5 tasks
+  check_sources_available  → success
+  download_anrt_datasets   → success
+  download_itu_data        → success
+  load_to_bronze           → success
+  trigger_dag_transform    → success
+
+dag_transform ✅  8/8 tasks
+  dbt_deps             → success
+  dbt_run_staging      → success  (16 views)
+  dbt_test_staging     → success  (68 tests, 0 failures)
+  dbt_run_intermediate → success  (3 ephemeral models)
+  dbt_run_marts        → success  (5 tables)
+  dbt_test_marts       → success
+  dbt_docs_generate    → success
+  trigger_dag_quality  → success
+
+dag_quality   ✅  4/4 tasks
+  ge_checkpoint_bronze   → success
+  ge_checkpoint_silver   → success
+  ge_checkpoint_gold     → success
+  publish_quality_report → success
+
+Quality Report — 20260604_065647
+  BRONZE: 16/16 ✓  (all 16 tables auto-discovered)
+  SILVER:  2/2  ✓
+  GOLD:    3/3  ✓
+```
