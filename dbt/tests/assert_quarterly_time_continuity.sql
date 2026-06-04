@@ -7,7 +7,9 @@ with periods as (
 ),
 
 all_quarters as (
-    select year, quarter from {{ ref('dim_period') }}
+    -- dim_period.quarter is an integer (1-4); convert to 'Q1' format to match staging
+    select year, 'Q' || cast(quarter as varchar) as quarter
+    from {{ ref('dim_period') }}
     where year between (select min(year) from periods)
       and (select max(year) from periods)
 ),
