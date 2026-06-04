@@ -28,5 +28,8 @@ great_expectations/uncommitted/
 # ── Environment & secrets ────────────────────────────────────────────────────
 .env
 
+# ── Claude Code project instructions (developer tooling, not part of the project) ──
+CLAUDE.md
+
 # ── macOS ────────────────────────────────────────────────────────────────────
 .DS_Store
