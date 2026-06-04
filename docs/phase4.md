@@ -1,6 +1,6 @@
 # Phase 4 — dbt Init
 
-**Status:** ⚠️ Code written and locally tested — not validated inside Docker  
+**Status:** ✅ Complete — tested locally and inside Docker  
 **Commit:** `8821741`
 
 ## What was built
@@ -27,17 +27,20 @@
 ### 3. `dbt deps` exit code 0 despite showing "Updates available" warning
 **Behaviour:** `dbt deps` prints an update notice for dbt_utils (1.1.1 → 1.3.3) but still exits 0 and installs the locked version correctly. Not an error — expected behaviour.
 
-## Test result (local only — not run inside Docker)
+## Test result
+
 ```
-dbt deps  → 0 (dbt_utils 1.1.1 installed)
+# Local
+dbt deps  → dbt_utils 1.1.1 installed
+dbt seed  → PASS=3 WARN=0 ERROR=0 TOTAL=3
+
+# Docker (airflow-scheduler container)
+dbt deps  → dbt_utils 1.1.1 installed
 dbt seed  → PASS=3 WARN=0 ERROR=0 TOTAL=3
             dim_operator: 3 rows
             dim_population: 17 rows
             dim_period: 68 rows
 ```
 
-## What still needs to happen
-- [ ] Restart Docker Desktop cleanly (was crashing at end of Phase 9 attempt)
-- [ ] Bring up full stack: `docker compose up -d`
-- [ ] Verify dbt is installed inside the Airflow container (`docker compose exec airflow-scheduler dbt --version`)
-- [ ] Run `dbt deps && dbt seed` inside the container against `/opt/data/warehouse.duckdb`
+### Issue found and fixed: dbt not pre-installed in Airflow image
+The `apache/airflow:2.8.0-python3.11` image does not ship dbt. Had to `pip install dbt-core==1.7.0 dbt-duckdb==1.7.0` inside the running container. For a production setup this should be baked into a custom Dockerfile.

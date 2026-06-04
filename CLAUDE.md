@@ -288,10 +288,10 @@ docker-compose exec airflow-scheduler \
 
 ## Implementation phases (check off as done)
 
-- [ ] **Phase 1** — Repo scaffold: directory structure, docker-compose.yml, requirements.txt, .gitignore, .env.example
-- [ ] **Phase 2** — `ingestion/anrt_extractor.py`: CKAN API loop, XLSX download, Bronze loader
-- [ ] **Phase 3** — `ingestion/itu_extractor.py`: ITU CSV download, Bronze loader
-- [ ] **Phase 4** — dbt init: dbt_project.yml, profiles.yml, packages.yml, seeds, sources.yml
+- [x] **Phase 1** — Repo scaffold: directory structure, docker-compose.yml, requirements.txt, .gitignore, .env.example
+- [x] **Phase 2** — `ingestion/anrt_extractor.py`: CKAN API loop, XLSX download, Bronze loader
+- [x] **Phase 3** — `ingestion/itu_extractor.py`: ITU CSV download, Bronze loader
+- [x] **Phase 4** — dbt init: dbt_project.yml, profiles.yml, packages.yml, seeds, sources.yml
 - [ ] **Phase 5** — dbt staging: 9 `stg_` models + schema tests
 - [ ] **Phase 6** — dbt intermediate + marts: 3 `int_` + 5 `mart_` models + tests
 - [ ] **Phase 7** — Airflow: dag_ingest.py, dag_transform.py, dag_quality.py
