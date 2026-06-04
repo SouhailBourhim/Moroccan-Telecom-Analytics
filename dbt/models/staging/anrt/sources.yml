@@ -4,6 +4,10 @@ version: 2
 sources:
   - name: bronze_anrt
     schema: main
+    freshness:
+      warn_after: {count: 90, period: day}
+      error_after: {count: 180, period: day}
+    loaded_at_field: ingested_at
     tables:
       - name: bronze_anrt_mobile
       - name: bronze_anrt_internet

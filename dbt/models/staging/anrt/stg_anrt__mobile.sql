@@ -8,7 +8,10 @@ renamed as (
     select
         cast(year as integer)         as year,
         cast(quarter as varchar)      as quarter,
-        cast(operator as varchar)     as operator,
+        case
+            when cast(operator as varchar) = 'IAM' then 'Maroc Telecom'
+            else cast(operator as varchar)
+        end                           as operator,
         cast(total_subs as bigint)    as total_subs,
         cast(prepaid_subs as bigint)  as prepaid_subs,
         cast(postpaid_subs as bigint) as postpaid_subs
