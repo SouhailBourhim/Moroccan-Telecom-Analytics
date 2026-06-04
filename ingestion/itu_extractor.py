@@ -173,7 +173,16 @@ def run_itu_extraction() -> None:
     if not df.empty:
         _save_raw_csv(df, ingested_at)
 
-    con = duckdb.connect(str(_WAREHOUSE))
+    # Retry loop: DuckDB allows only one writer; ANRT may still hold the lock.
+    for _attempt in range(12):
+        try:
+            con = duckdb.connect(str(_WAREHOUSE))
+            break
+        except duckdb.IOException:
+            if _attempt == 11:
+                raise
+            logger.warning("DuckDB lock held — retry %d/12 in 10s", _attempt + 1)
+            time.sleep(10)
     try:
         n = _load_bronze(con, df, ingested_at)
     finally:

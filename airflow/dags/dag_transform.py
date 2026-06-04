@@ -13,14 +13,16 @@ from airflow.utils.dates import days_ago
 _DBT_DIR = "/opt/dbt"
 _DBT_PROFILES_DIR = "/opt/dbt"
 _DBT_TARGET = "dev"  # maps to /opt/data/warehouse.duckdb in profiles.yml
+_DBT_BIN = "/home/airflow/.local/bin/dbt"
 
 _DBT_ENV = {
+    "PATH": "/home/airflow/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "DBT_TARGET": _DBT_TARGET,
     "WAREHOUSE_PATH": os.environ.get("WAREHOUSE_PATH", "/opt/data/warehouse.duckdb"),
     "HOME": "/home/airflow",
 }
 
-_DBT_CMD = f"dbt {{cmd}} --profiles-dir {_DBT_PROFILES_DIR} --project-dir {_DBT_DIR}"
+_DBT_CMD = f"{_DBT_BIN} {{cmd}} --profiles-dir {_DBT_PROFILES_DIR} --project-dir {_DBT_DIR}"
 
 default_args = {
     "owner": "airflow",
@@ -74,9 +76,14 @@ with DAG(
         env=_DBT_ENV,
     )
 
+    _docs_cmd = (
+        "for i in 1 2 3 4 5; do "
+        + _DBT_CMD.format(cmd="docs generate")
+        + " && break || sleep 10; done"
+    )
     dbt_docs = BashOperator(
         task_id="dbt_docs_generate",
-        bash_command=_DBT_CMD.format(cmd="docs generate"),
+        bash_command=_docs_cmd,
         env=_DBT_ENV,
     )
 

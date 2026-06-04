@@ -13,7 +13,7 @@ from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 logger = logging.getLogger(__name__)
 
 _ANRT_BASE = os.environ.get("ANRT_BASE_URL", "https://data.gov.ma/data/api/3/action/")
-_ITU_BASE = os.environ.get("ITU_BASE_URL", "https://api.datahub.itu.int/v2")
+_ITU_BASE = os.environ.get("ITU_API_BASE", "https://api.datahub.itu.int/v2")
 
 
 def check_sources_available() -> str:
@@ -34,8 +34,8 @@ def check_sources_available() -> str:
 
 def download_anrt_datasets() -> str:
     """Run ANRT extractor: CKAN API → XLSX download → Bronze tables."""
-    from ingestion.anrt_extractor import run_anrt_extraction
-    run_anrt_extraction()
+    from ingestion.anrt_extractor import run
+    run()
     return "anrt extraction complete"
 
 

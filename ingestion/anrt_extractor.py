@@ -894,7 +894,16 @@ def run(dataset_ids: list[str] | None = None) -> dict[str, int]:
     ingested_at = datetime.now(timezone.utc).replace(tzinfo=None)
     results: dict[str, int] = {}
 
-    con = duckdb.connect(WAREHOUSE_PATH)
+    # Retry loop: DuckDB allows only one writer; ITU task may still hold the lock.
+    for _attempt in range(12):
+        try:
+            con = duckdb.connect(WAREHOUSE_PATH)
+            break
+        except duckdb.IOException:
+            if _attempt == 11:
+                raise
+            logger.warning("DuckDB lock held — retry %d/12 in 10s", _attempt + 1)
+            time.sleep(10)
     try:
         for cfg in _DATASETS:
             if dataset_ids and cfg.dataset_id not in dataset_ids:
