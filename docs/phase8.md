@@ -1,6 +1,6 @@
 # Phase 8 — Great Expectations
 
-**Status:** ✅ Complete  
+**Status:** ⚠️ Code written and locally tested — not validated inside Docker  
 **Commit:** `9fd9cd1`  
 **File:** `great_expectations/runner.py`
 
@@ -48,7 +48,7 @@ A standalone Python module (`runner.py`) using the GE 0.18.x **fluent (ephemeral
 ### 4. `result_format` UserWarning
 **Behaviour:** GE 0.18.x logs `UserWarning: result_format configured at Validator-level will not be persisted`. This is a warning, not an error — ignored.
 
-## Test result
+## Test result (local only — not run inside Docker)
 ```
 Bronze: 9/9 checks passed
 Silver: 2/2 checks passed
@@ -57,6 +57,11 @@ Total:  14/14 PASS
 
 Report written to: data/ge_reports/quality_20260604.txt
 ```
+
+## What still needs to happen
+- [ ] Phases 3–7 must be completed first (pipeline must run end-to-end inside Docker)
+- [ ] Trigger `dag_quality` inside Docker and confirm all 14 GE checks pass
+- [ ] Verify `data/ge_reports/quality_{YYYYMMDD}.txt` is written to the mounted volume
 
 Sample report:
 ```

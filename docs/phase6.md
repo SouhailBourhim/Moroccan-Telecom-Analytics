@@ -1,6 +1,6 @@
 # Phase 6 — dbt Intermediate + Mart Models
 
-**Status:** ✅ Complete  
+**Status:** ⚠️ Code written and locally tested — not validated inside Docker  
 **Commit:** `091e531`
 
 ## What was built
@@ -49,8 +49,14 @@
 ### 3. `int_penetration_rates` only produces annual values
 **Design decision:** Penetration is computed from Q4 (end-of-year) snapshots and the annual population seed. In `mart_internet_evol`, the annual penetration value is joined onto all 4 quarters of that year (same value shown for Q1–Q4), which is acceptable for visualization.
 
-## Test result
+## Test result (local only — not run inside Docker)
 ```
 dbt run   → PASS=14 WARN=0 ERROR=0 TOTAL=14  (9 views + 5 tables)
 dbt test  → PASS=41 WARN=0 ERROR=0 TOTAL=41
 ```
+
+## What still needs to happen
+- [ ] Phase 3 must be completed first (ITU extractor Docker-tested)
+- [ ] Run `dbt run` inside Airflow container (staging + intermediate + marts)
+- [ ] Run `dbt test` inside Airflow container — all 41 tests must pass
+- [ ] Verify Gold mart tables exist in `/opt/data/warehouse.duckdb` with correct row counts

@@ -1,6 +1,6 @@
 # Phase 7 — Airflow DAGs
 
-**Status:** ✅ Complete (DAGs import cleanly; end-to-end run not tested — Docker was unstable)  
+**Status:** ⚠️ Code written and locally tested — not validated inside Docker  
 **Commit:** `0c3c236`
 
 ## What was built
@@ -64,7 +64,7 @@ All 3 DAGs imported cleanly with correct task IDs.
 ### 3. `reset_dag_run=True` on TriggerDagRunOperator
 **Decision:** Added `reset_dag_run=True` to `TriggerDagRunOperator` calls so that re-triggering after a failure clears the previous state of the downstream DAG instead of skipping.
 
-## Test result
+## Test result (DAG import only — no end-to-end run)
 ```
 dag_ingest:    tasks=['check_sources_available', 'download_anrt_datasets',
                       'download_itu_data', 'load_to_bronze', 'trigger_dag_transform']
@@ -75,3 +75,10 @@ dag_quality:   tasks=['ge_checkpoint_bronze', 'ge_checkpoint_silver',
                       'ge_checkpoint_gold', 'publish_quality_report']
 All 3 DAGs: OK (imported inside Airflow scheduler container)
 ```
+
+## What still needs to happen
+- [ ] Restart Docker Desktop cleanly and bring up full stack
+- [ ] Trigger `dag_ingest` manually and confirm all tasks go green in Airflow UI
+- [ ] Confirm `dag_transform` auto-triggers and dbt run/test tasks pass
+- [ ] Confirm `dag_quality` auto-triggers and all GE checks pass
+- [ ] Verify `data/ge_reports/` gets written inside the container
