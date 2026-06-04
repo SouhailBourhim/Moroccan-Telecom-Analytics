@@ -1,6 +1,6 @@
 # Phase 5 — dbt Staging Models
 
-**Status:** ✅ Complete  
+**Status:** ⚠️ Code written and locally tested — not validated inside Docker  
 **Commit:** `2c55bfe`
 
 ## What was built
@@ -47,8 +47,13 @@ end as subscribers
 ### 3. QoS data has no operator breakdown
 **Discovery:** All 60 rows in `bronze_anrt_qos` have `operator = NULL`. The ANRT QoS XLSX reports aggregate national indicators, not per-operator. The `mart_qos_scorecard` reflects this — no per-operator filtering possible.
 
-## Test result
+## Test result (local only — not run inside Docker)
 ```
 dbt run --select staging  → PASS=9 WARN=0 ERROR=0 TOTAL=9
 dbt test --select staging → PASS=25 WARN=0 ERROR=0 TOTAL=25
 ```
+
+## What still needs to happen
+- [ ] Phase 3 must be completed first (ITU extractor Docker-tested)
+- [ ] Run `dbt run --select staging` inside Airflow container
+- [ ] Run `dbt test --select staging` inside Airflow container — all 25 tests must pass

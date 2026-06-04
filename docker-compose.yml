@@ -9,7 +9,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     ANRT_BASE_URL: ${ANRT_BASE_URL:-https://data.gov.ma/data/api/3/action/}
-    ITU_BASE_URL: ${ITU_BASE_URL:-https://datahub.itu.int/}
+    ITU_API_BASE: ${ITU_API_BASE:-https://api.datahub.itu.int/v2}
     DATA_DIR: /opt/data
     RAW_DIR: /opt/data/raw
     WAREHOUSE_PATH: /opt/data/warehouse.duckdb
@@ -97,15 +97,17 @@ services:
 
   # ── Metabase ────────────────────────────────────────────────────────────────
   metabase:
-    image: metabase/metabase:latest
+    image: metabase/metabase:v0.49.7
     ports:
       - "3000:3000"
     environment:
       MB_DB_TYPE: h2
       JAVA_TIMEZONE: UTC
+      MB_PLUGINS_DIR: /plugins
     volumes:
       - metabase-data:/metabase-data
       - ./data:/opt/data:ro
+      - ./metabase-plugins:/plugins:ro
     restart: always
 
 volumes:

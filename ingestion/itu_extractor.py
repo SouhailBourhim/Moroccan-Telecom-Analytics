@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _API_BASE = os.environ.get("ITU_API_BASE", "https://api.datahub.itu.int/v2")
 _ISO_CODE = "MAR"  # Morocco ISO-3166-1 alpha-3
 _WAREHOUSE = Path(os.environ.get("WAREHOUSE_PATH", "data/warehouse.duckdb"))
+_RAW_DIR = Path(os.environ.get("RAW_DIR", "data/raw"))
 _TIMEOUT = 30
 _RETRY_WAITS = (2, 4, 8)
 
@@ -118,6 +119,20 @@ def _fetch_indicator(ind: _Indicator, session: requests.Session) -> list[dict]:
     logger.info("  → %d rows (%d skipped)", len(rows), skipped)
     return rows
 
+# ── Raw CSV writer ─────────────────────────────────────────────────────────────
+
+
+def _save_raw_csv(df: pd.DataFrame, ingested_at: datetime) -> Path:
+    """Write raw rows to data/raw/itu/itu_morocco_<date>.csv."""
+    itu_dir = _RAW_DIR / "itu"
+    itu_dir.mkdir(parents=True, exist_ok=True)
+    date_str = ingested_at.strftime("%Y%m%d")
+    path = itu_dir / f"itu_morocco_{date_str}.csv"
+    df.to_csv(path, index=False)
+    logger.info("Raw ITU data saved → %s (%d rows)", path, len(df))
+    return path
+
+
 # ── Bronze loader ──────────────────────────────────────────────────────────────
 
 
@@ -154,6 +169,9 @@ def run_itu_extraction() -> None:
 
     df = pd.DataFrame(all_rows)
     ingested_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if not df.empty:
+        _save_raw_csv(df, ingested_at)
 
     con = duckdb.connect(str(_WAREHOUSE))
     try:
