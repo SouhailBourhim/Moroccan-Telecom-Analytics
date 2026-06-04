@@ -296,7 +296,7 @@ docker-compose exec airflow-scheduler \
 - [x] **Phase 6** — dbt intermediate + marts: 3 `int_` + 5 `mart_` models + tests
 - [x] **Phase 7** — Airflow: dag_ingest.py, dag_transform.py, dag_quality.py
 - [x] **Phase 8** — Great Expectations: expectations + checkpoints for 3 layers
-- [ ] **Phase 9** — Metabase: DuckDB connection + 5 dashboards
+- [x] **Phase 9** — Metabase: DuckDB connection + 5 dashboards
 
 ## Coding conventions
 
