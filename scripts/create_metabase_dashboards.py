@@ -174,7 +174,7 @@ c5a = create_card(
 )
 c5b = create_card(
     "Benchmarks — Full Table",
-    "SELECT * FROM gold.mart_benchmarks ORDER BY indicator_name, year",
+    "SELECT * FROM gold.mart_benchmarks ORDER BY year",
 )
 d5 = create_dashboard("Morocco vs MENA Benchmarks", "Morocco telecom indicators vs ITU / MENA data")
 add_cards_to_dashboard(d5, [
