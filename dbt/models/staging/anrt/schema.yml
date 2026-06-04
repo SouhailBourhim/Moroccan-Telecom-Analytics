@@ -58,15 +58,10 @@ models:
         tests: [not_null]
 
   - name: stg_anrt__qos
-    description: Quality-of-service indicators
+    description: Quality-of-service indicators (aggregate — no per-operator breakdown in source)
     columns:
       - name: year
         tests: [not_null]
-      - name: operator
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['Maroc Telecom', 'Orange Maroc', 'Inwi']
       - name: indicator
         tests: [not_null]
       - name: value
