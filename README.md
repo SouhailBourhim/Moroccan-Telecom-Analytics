@@ -19,7 +19,7 @@ ANRT (CKAN API)          ITU DataHub API
             dag_transform  (triggered)
                   │
            Silver Layer — dbt staging views
-           9 models: cast, rename, normalize operators
+           16 models: cast, rename, normalize
                   │
            Intermediate — 3 ephemeral models
            market share · penetration rates · YoY growth
@@ -30,7 +30,7 @@ ANRT (CKAN API)          ITU DataHub API
                   │
             dag_quality  (triggered)
                   │
-           Great Expectations — 14 checks across 3 layers
+           Great Expectations — checks across 3 layers
                   │
               Metabase  (5 dashboards)
 ```
@@ -46,7 +46,7 @@ ANRT (CKAN API)          ITU DataHub API
 | dbt-core | 1.7.0 | Silver + Gold transformations |
 | dbt-duckdb | 1.7.0 | dbt adapter for DuckDB |
 | DuckDB | 1.5.3 | Local data warehouse |
-| Great Expectations | 0.18.0 | Data quality — 14 checks |
+| Great Expectations | 0.18.0 | Data quality checks |
 | PostgreSQL | 15 | Airflow metadata + Metabase analytics export |
 | Metabase | 0.49.7 | Dashboards |
 | Docker Compose | — | Local orchestration of all services |
@@ -57,10 +57,10 @@ ANRT (CKAN API)          ITU DataHub API
 
 ### ANRT — data.gov.ma
 16 XLSX datasets covering 2006–2022 downloaded via the CKAN API (no auth, ODbL licence):
-mobile subscriptions, internet, fixed telephony, QoS, traffic, ARPM, bandwidth, complaints, portability, usage, IP addresses, data links, TIC surveys, domain names, payphones.
+mobile subscriptions, internet, fixed telephony, QoS, traffic, ARPM, bandwidth, complaints, portability (mobile + fixed), usage averages, IP addresses, data links, TIC surveys, domain names, payphones.
 
 ### ITU DataHub
-8 ICT indicators for Morocco (mobile subscriptions, fixed broadband, internet users %, international bandwidth, mobile revenue) fetched from the ITU REST API.
+8 ICT indicators for Morocco (mobile subscriptions, fixed broadband, internet users %, international bandwidth, mobile revenue) fetched from the ITU REST API — data available through 2024.
 
 ---
 
@@ -69,9 +69,10 @@ mobile subscriptions, internet, fixed telephony, QoS, traffic, ARPM, bandwidth, 
 ```
 morocco-telecom-analytics/
 ├── Dockerfile                  # Custom Airflow image (dbt + DuckDB + GE pre-installed)
-├── Dockerfile.metabase         # Custom Metabase image (libstdc++ for DuckDB JDBC)
+├── Dockerfile.metabase         # Custom Metabase image (libstdc++ for Alpine)
 ├── docker-compose.yml
 ├── requirements.txt
+├── .env.example                # Template — copy to .env and fill secrets before starting
 ├── ingestion/
 │   ├── anrt_extractor.py       # CKAN API → 16 XLSX datasets → Bronze
 │   ├── itu_extractor.py        # ITU API → Bronze
@@ -85,15 +86,13 @@ morocco-telecom-analytics/
 │       └── ge_runner.py        # GE validation runner (imported by dag_quality)
 ├── dbt/
 │   ├── models/
-│   │   ├── staging/            # 9 stg_ models (Silver layer, views)
+│   │   ├── staging/            # 16 stg_ models (Silver layer, views)
 │   │   ├── intermediate/       # 3 int_ models (ephemeral)
 │   │   └── marts/              # 5 mart_ models (Gold layer, tables)
-│   ├── seeds/                  # dim_operator, dim_population, dim_period
-│   └── tests/                  # Singular tests: positive subs, market share = 100
-├── great_expectations/
-│   └── runner.py               # Bronze / Silver / Gold checkpoint logic
+│   ├── seeds/                  # dim_operator, dim_population (through 2024), dim_period (through 2024)
+│   └── tests/                  # 5 custom singular tests
 ├── scripts/
-│   └── create_metabase_dashboards.py   # Metabase API — creates 5 dashboards
+│   └── create_metabase_dashboards.py   # Metabase API — creates/updates 5 dashboards
 └── data/
     ├── raw/                    # Downloaded XLSX + CSV files (gitignored)
     └── warehouse.duckdb        # DuckDB warehouse (gitignored)
@@ -113,6 +112,7 @@ morocco-telecom-analytics/
 git clone https://github.com/SouhailBourhim/Moroccan-Telecom-Analytics.git
 cd Moroccan-Telecom-Analytics
 cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD and AIRFLOW_WWW_PASSWORD at minimum
 ```
 
 ### 2. Start all services
@@ -127,7 +127,7 @@ First build takes ~5 minutes as it installs dbt, DuckDB, and Great Expectations 
 ### 3. Run the pipeline
 
 ```bash
-# Trigger ingestion manually (runs monthly in production)
+# Trigger ingestion manually (runs @monthly in production)
 docker compose exec airflow-scheduler \
   airflow dags trigger dag_ingest
 ```
@@ -144,8 +144,11 @@ Once the pipeline has run at least once:
 docker compose exec airflow-scheduler \
   python3 /opt/airflow/ingestion/export_to_postgres.py
 
-# Get a session token (Metabase must be set up first via http://localhost:3000)
-python3 scripts/create_metabase_dashboards.py <session-token> <db-id> <collection-id>
+# Create/update dashboards (reads METABASE_TOKEN, METABASE_DB_ID, METABASE_COLLECTION_ID from env)
+export METABASE_TOKEN=<session-token>
+export METABASE_DB_ID=<db-id>
+export METABASE_COLLECTION_ID=<collection-id>
+python3 scripts/create_metabase_dashboards.py
 ```
 
 ---
@@ -154,7 +157,7 @@ python3 scripts/create_metabase_dashboards.py <session-token> <db-id> <collectio
 
 | Service | URL | Credentials |
 |---|---|---|
-| Airflow UI | http://localhost:8080 | admin / admin |
+| Airflow UI | http://localhost:8080 | admin / (AIRFLOW_WWW_PASSWORD from .env) |
 | Metabase | http://localhost:3000 | admin@morocctelecom.local / Admin1234! |
 
 ---
@@ -173,21 +176,6 @@ Five dashboards in the **Morocco Telecom Analytics** Metabase collection:
 
 ---
 
-## Data Quality
-
-### dbt tests (blocking — DAG fails on error)
-- `not_null` on all key columns across Bronze, Silver, Gold
-- `unique` combination tests on `(year, quarter, operator)` in staging
-- Singular tests: `total_subs > 0`, `SUM(market_share) BETWEEN 99 AND 101`
-- Source freshness: warn > 90 days, error > 180 days
-
-### Great Expectations (non-blocking — report written to `data/ge_reports/`)
-- **Bronze**: row count ≥ 10 for all 9 tables
-- **Silver**: mobile subscribers non-negative, penetration in [0, 200]
-- **Gold**: Maroc Telecom market share median in [30, 60], no null KPIs, benchmarks ≥ 15 years
-
----
-
 ## DAG Chain
 
 ```
@@ -200,17 +188,17 @@ dag_ingest  (@monthly)
 
 dag_transform  (triggered)
   ├── dbt_deps
-  ├── dbt_run_staging → dbt_test_staging
+  ├── dbt_run_staging → dbt_test_staging     ← --fail-fast: halts on any failure
   ├── dbt_run_intermediate
-  ├── dbt_run_marts → dbt_test_marts
-  ├── dbt_docs_generate
+  ├── dbt_run_marts → dbt_test_marts         ← --fail-fast: halts on any failure
+  ├── dbt_docs_generate                      ← retries=4 with 10s back-off
   └── trigger → dag_quality
 
 dag_quality  (triggered)
-  ├── ge_checkpoint_bronze
-  ├── ge_checkpoint_silver
-  ├── ge_checkpoint_gold
-  └── publish_quality_report
+  ├── ge_checkpoint_bronze   ┐
+  ├── ge_checkpoint_silver   ├── each pushes results to XCom
+  ├── ge_checkpoint_gold     ┘
+  └── publish_quality_report  ← pulls XCom, writes timestamped report
 ```
 
 ---
@@ -220,6 +208,61 @@ dag_quality  (triggered)
 | Layer | Schema | Materialisation | Tables |
 |---|---|---|---|
 | Bronze | (default) | Tables | 16 raw tables, exact copy of source |
-| Silver | `silver` | Views | 9 `stg_` models — cast, rename, normalize |
+| Silver | `silver` | Views | 16 `stg_` models — cast, rename, normalize |
 | Intermediate | — | Ephemeral | 3 `int_` models — business logic CTEs |
 | Gold | `gold` | Tables | 5 `mart_` models — analytics-ready |
+
+---
+
+## Data Quality
+
+### dbt tests (blocking — pipeline fails on error)
+- `not_null` on all key columns across Bronze, Silver, Gold
+- `accepted_values` on `quarter` (Q1–Q4), `operator` (3 names), `technology` (5 types), `indicator_code` (8 ITU codes)
+- `unique_combination_of_columns` on `(year, quarter, operator)` in stg_mobile and stg_internet
+- `dbt_utils.accepted_range` on `market_share_pct` [0, 100] and `mobile_penetration_per_100` [0, 200]
+- Source freshness: warn > 90 days, error > 180 days
+- **Custom singular tests:**
+  - `assert_mobile_subs_positive` — no negative subscriber counts
+  - `assert_market_share_sums_to_100` — `SUM(market_share_pct)` between 99 and 101 per period
+  - `assert_market_share_bounds` — broader tolerance check (95–105%) for periods with rounding
+  - `assert_no_empty_gold_tables` — all 5 Gold marts must have > 0 rows
+  - `assert_quarterly_time_continuity` — no gaps in mobile quarterly time series
+
+### Great Expectations (non-blocking — report written to `data/ge_reports/`)
+- **Bronze**: row count ≥ 10 for all Bronze tables (auto-discovered)
+- **Silver**: mobile subscribers non-negative, penetration in [0, 200]
+- **Gold**: Maroc Telecom market share median in [30, 60], no null KPIs, benchmarks ≥ 15 years
+- Reports use timestamped filenames (`quality_YYYYMMDD_HHMMSS.txt`) — no same-day collisions
+
+---
+
+## Implementation Phases
+
+| Phase | What was built | Status |
+|---|---|---|
+| 1 | Repo scaffold: docker-compose, requirements, seeds, .env.example, directory structure | ✅ |
+| 2 | `anrt_extractor.py`: CKAN API loop, universal XLSX parser, Bronze loader for 16 datasets | ✅ |
+| 3 | `itu_extractor.py`: ITU REST API discovery, 8 indicators → `bronze_itu_morocco` | ✅ |
+| 4 | dbt init: profiles.yml, dbt_project.yml, packages.yml, seeds, sources.yml | ✅ |
+| 5 | 9 staging models + schema tests (Silver layer) | ✅ |
+| 6 | 3 intermediate + 5 mart models + tests (Gold layer), 41 tests passing | ✅ |
+| 7 | 3 Airflow DAGs (17 tasks total), TriggerDagRunOperator chain | ✅ |
+| 8 | Great Expectations fluent API runner, 14 checks across 3 layers | ✅ |
+| 9 | Metabase dashboards via PostgreSQL export; 5 dashboards live | ✅ |
+| Improvements | Cross-cutting fixes: security, reliability, test coverage, missing models | ✅ |
+
+---
+
+## Post-Phase Improvements
+
+After the initial 9-phase build, a full project audit was performed. The findings and fixes are documented in [`docs/improvements.md`](docs/improvements.md). Summary:
+
+| Severity | Fixed |
+|---|---|
+| Critical bugs | `import time` crash, dbt test failures not blocking DAG, no-rollback PostgreSQL export |
+| Security | Credentials moved to `.env`, secrets out of source code, container no longer runs as root |
+| Data coverage | 7 missing staging models added (portability, usage_avg, ip, data_links, tic_survey, domains, payphones) |
+| Reliability | CKAN retry logic, XCom-based quality report, seeds extended to 2024, log rotation |
+| Test coverage | `accepted_values` on all categorical columns, intermediate schema.yml, 3 new singular tests |
+| Polish | Idempotent dashboard script, Airflow-native retries, timestamped GE reports |
