@@ -13,7 +13,7 @@ in Metabase. All services run locally via Docker Compose.
 | Apache Airflow | 2.8.0 | Orchestration (3 DAGs) |
 | dbt-core | 1.7.0 | Transformations Silver + Gold |
 | dbt-duckdb | 1.7.0 | dbt adapter for DuckDB |
-| DuckDB | 0.10.0 | Data warehouse (single .duckdb file) |
+| DuckDB | 1.5.3 | Data warehouse (single .duckdb file) |
 | Great Expectations | 0.18.0 | Data quality checkpoints |
 | pandas | 2.1.0 | Data manipulation in extractors |
 | openpyxl | 3.1.2 | XLSX parsing |

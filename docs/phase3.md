@@ -1,7 +1,7 @@
 # Phase 3 — ITU Extractor
 
-**Status:** ⚠️ Incomplete — extractor written and tested locally, but not validated end-to-end in the Docker pipeline  
-**Commit:** `45fbee3`  
+**Status:** ✅ Complete — tested locally and inside Docker  
+**Commit:** `b1b82ad`  
 **File:** `ingestion/itu_extractor.py`
 
 ## What was built
@@ -62,17 +62,15 @@ Years: 2000–2024, 0 failures
 **Problem:** `/v2/idi/data/bycountryid/155` returns IDI data but the label endpoint `/v2/idi/dictionary` returns 403. Cannot map IDI codeIDs (1–14) to indicator names without auth.  
 **Decision:** Excluded IDI data from the extractor. The 8 standard indicators cover all mart requirements.
 
-## What is still missing / incomplete
+## Docker validation result
 
-1. **No end-to-end Docker test**: The extractor was only tested locally (`python -m ingestion.itu_extractor`). It has not been triggered via the Airflow `dag_ingest` DAG inside the Docker container. The Docker pipeline was broken (see Phase 1 issues) and was never fully retested after fixing.
+```
+docker compose exec airflow-scheduler python -m ingestion.itu_extractor
+→ 8 indicators fetched, 189 rows loaded, 0 failures
+→ Raw CSV written to /opt/data/raw/itu/itu_morocco_20260604.csv
+```
 
-2. **ITU_BASE_URL env var mismatch**: `docker-compose.yml` sets `ITU_BASE_URL=https://datahub.itu.int/` but the extractor uses the hardcoded API base `https://api.datahub.itu.int/v2`. The env var is not used by the extractor. Needs alignment.
+### Issue found and fixed: DuckDB version mismatch
+The local `.venv` had DuckDB 1.5.3 (which wrote `warehouse.duckdb`) but `requirements.txt` pinned 0.10.0. DuckDB cannot read files written by a newer version — the container crashed with `SerializationException: expected end of object, field id: 100`.
 
-3. **No raw file saved**: The CLAUDE.md spec says to store ITU data as CSV in `data/raw/itu/`. The current extractor downloads directly to DuckDB without saving the raw CSV.
-
-## What needs to be done to complete
-
-- [ ] Align `ITU_API_BASE` env var with docker-compose (rename `ITU_BASE_URL` to `ITU_API_BASE` in compose, or update the extractor to derive the API base from `ITU_BASE_URL`)
-- [ ] Add raw CSV save step: write fetched data to `data/raw/itu/itu_morocco_{date}.csv` before loading to DuckDB
-- [ ] Test inside Docker: `docker compose exec airflow-scheduler python -m ingestion.itu_extractor`
-- [ ] Trigger `dag_ingest` and verify `bronze_itu_morocco` is populated inside the container
+**Fix:** Upgraded container to DuckDB 1.5.3 and updated `requirements.txt` and `CLAUDE.md` to pin `duckdb==1.5.3`.

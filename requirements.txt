@@ -2,7 +2,7 @@
 apache-airflow==2.8.0
 dbt-core==1.7.0
 dbt-duckdb==1.7.0
-duckdb==0.10.0
+duckdb==1.5.3
 great-expectations==0.18.0
 
 # Data handling
