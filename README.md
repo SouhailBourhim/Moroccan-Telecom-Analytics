@@ -2,6 +2,15 @@
 
 End-to-end data engineering pipeline that ingests Moroccan telecom market data from **ANRT** (data.gov.ma) and **ITU DataHub** into a DuckDB warehouse, transforms it with dbt using a Bronze / Silver / Gold medallion architecture, orchestrates everything with Apache Airflow, and visualises results in Metabase — all running locally via Docker Compose.
 
+**Stack:** Python 3.11 · Apache Airflow 2.8 · dbt-core 1.7 · DuckDB · Great Expectations ·
+PostgreSQL 15 · Metabase · Docker Compose
+
+![Market Overview dashboard](docs/screenshots/dashboard_market_overview.png)
+
+Three Airflow DAGs — ingest, transform, quality — move 16 ANRT datasets (2006–2022) and 8 ITU
+indicators (2000–2024) through Bronze → Silver → Gold, with **21 Great Expectations checks** gating
+the marts before Metabase ever sees them. More screenshots below.
+
 ---
 
 ## Architecture
